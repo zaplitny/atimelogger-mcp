@@ -1,0 +1,26 @@
+{
+  "name": "atimelogger-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing the ATimeLogger REST API (activities, reports, types)",
+  "type": "module",
+  "bin": {
+    "atimelogger-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "setup": "tsx scripts/setup.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
