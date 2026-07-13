@@ -35,7 +35,7 @@ No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotoco
 - `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas)
 - `scripts/setup.ts` — prompts for a pasted PAT, verifies it against `/api/users/me`, prints the ready `claude mcp add` command
 
-Design rule: tools are task-shaped, not 1:1 REST mirrors. Tools accept human type **names** (fuzzy resolved), never UUIDs; responses are compact JSON with resolved names and humanized durations.
+Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUIDs for machines: tools accept human type **names** (fuzzy resolved) and outputs carry internal `id` fields that tools also accept back (`type_id`, `activity_id`, `type_ids`) for exact targeting between calls — the server instructions tell the LLM to never show ids to the user. Responses are compact JSON with resolved names and humanized durations.
 
 ## Backend API contract (verified against the Java source, 2026-07)
 

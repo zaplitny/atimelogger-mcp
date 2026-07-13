@@ -5,6 +5,7 @@ import { textResult, withErrors } from "../errors.js";
 
 interface TypeNode {
   name: string;
+  id: string;
   archived?: boolean;
   children?: TypeNode[];
 }
@@ -20,7 +21,7 @@ function buildTree(types: ActivityTypeDto[], includeArchived: boolean): TypeNode
     byParent.set(parent, list);
   }
   const toNode = (t: ActivityTypeDto): TypeNode => {
-    const node: TypeNode = { name: t.name };
+    const node: TypeNode = { name: t.name, id: t.id };
     if (t.archived) node.archived = true;
     const children = byParent.get(t.id);
     if (children?.length) node.children = children.map(toNode);
@@ -34,8 +35,8 @@ export function registerTypeTools(server: McpServer): void {
     "list_activity_types",
     {
       description:
-        "List the user's activity type names as a tree (groups contain children). " +
-        "Use these names for start_activity, log_interval, and report filters.",
+        "List the user's activity types as a tree (groups contain children): names plus internal ids. " +
+        "Use the names when talking to the user; use the ids for exact targeting in other tools.",
       inputSchema: {
         include_archived: z.boolean().optional().describe("Include archived types (default false)"),
       },

@@ -53,6 +53,17 @@ export async function resolveTypeName(name: string, opts: ResolveOptions = {}): 
   );
 }
 
+export async function resolveTypeById(id: string, opts: ResolveOptions = {}): Promise<ActivityTypeDto> {
+  const match = (await getTypes()).find((t) => t.id === id && !t.deleted);
+  if (!match) {
+    throw new Error(`No activity type with id "${id}" — call list_activity_types for current ids.`);
+  }
+  if (!opts.allowGroups && match.group) {
+    throw new Error(`"${match.name}" is a group and cannot be started or logged directly.`);
+  }
+  return match;
+}
+
 function ambiguous(name: string, matches: ActivityTypeDto[]): Error {
   return new Error(
     `Activity type name "${name}" is ambiguous, matches: ${matches.map((t) => t.name).join(", ")}. Use a more specific name.`

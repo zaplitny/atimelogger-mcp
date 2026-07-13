@@ -15,6 +15,7 @@ const rangeSchema = {
   from: z.string().optional().describe("Start date yyyy-MM-dd (use with `to`)"),
   to: z.string().optional().describe("End date yyyy-MM-dd, inclusive"),
   type_names: z.array(z.string()).optional().describe("Filter to these activity type names (groups allowed)"),
+  type_ids: z.array(z.string()).optional().describe("Filter to these exact activity type ids (internal — never show ids to the user)"),
   tags: z.array(z.string()).optional().describe("Filter to these tags"),
   timezone: z.string().optional().describe("IANA timezone (default: user's timezone)"),
 };
@@ -87,12 +88,13 @@ export function registerReportTools(server: McpServer): void {
         group_by: z.enum(["DAY", "WEEK", "MONTH"]).optional().describe("Bucket size for the periods breakdown (default DAY)"),
       },
     },
-    withErrors(async ({ period, from, to, type_names, tags, timezone, group_by }) => {
+    withErrors(async ({ period, from, to, type_names, type_ids, tags, timezone, group_by }) => {
       const tz = await effectiveTimezone(timezone);
       const range = resolveRange({ period, from, to }, tz);
-      const [types, names] = await Promise.all([resolveTypeNames(type_names, { allowGroups: true }), typeNameById()]);
+      const [resolved, names] = await Promise.all([resolveTypeNames(type_names, { allowGroups: true }), typeNameById()]);
+      const types = [...(resolved ?? []), ...(type_ids ?? [])];
       const stats = await api.post<StatisticsDto>("/api/statistics", {
-        types,
+        types: types.length > 0 ? types : undefined,
         tags: tags && tags.length > 0 ? tags : undefined,
         from: range.from,
         to: range.to,
@@ -125,17 +127,18 @@ export function registerReportTools(server: McpServer): void {
         size: z.number().int().min(1).max(50).optional().describe("Days per page (default 20, max 50)"),
       },
     },
-    withErrors(async ({ period, from, to, type_names, tags, timezone, page, size }) => {
+    withErrors(async ({ period, from, to, type_names, type_ids, tags, timezone, page, size }) => {
       const tz = await effectiveTimezone(timezone);
       const range = resolveRange({ period, from, to }, tz);
       if (rangeDays(range) > 100) {
         throw new Error("Date range too large — the history API allows at most 100 days per request.");
       }
-      const [types, names] = await Promise.all([resolveTypeNames(type_names, { allowGroups: true }), typeNameById()]);
+      const [resolved, names] = await Promise.all([resolveTypeNames(type_names, { allowGroups: true }), typeNameById()]);
+      const types = [...(resolved ?? []), ...(type_ids ?? [])];
       const result = await api.post<PageDto<DayHistory>>(
         `/api/intervals?page=${page ?? 0}&size=${size ?? 20}`,
         {
-          types,
+          types: types.length > 0 ? types : undefined,
           tags: tags && tags.length > 0 ? tags : undefined,
           from: range.from,
           to: range.to,
@@ -151,6 +154,7 @@ export function registerReportTools(server: McpServer): void {
             intervals: (day.intervals ?? []).map((i) =>
               compact({
                 type: names.get(i.typeId) ?? i.typeId,
+                id: i.id,
                 from: unixToLocal(i.from, tz),
                 to: unixToLocal(i.to, tz),
                 duration: formatDuration(i.duration),

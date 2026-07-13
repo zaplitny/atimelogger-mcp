@@ -20,7 +20,7 @@ const server = new McpServer(
       'things like "Work", "Sleep", "Reading".',
       "",
       "Conventions shared by all tools:",
-      '- Activities are referenced by human-readable type names, fuzzy matched (exact, then substring) — never UUIDs. If a name does not resolve or is ambiguous, call list_activity_types and retry with a name from the tree. Groups organize types and cannot be started/logged, but may be used as report filters.',
+      '- Tools speak names to the user and ids to the API. Outputs include internal `id` fields (activity types, active activities, intervals): pass them back (type_id, activity_id, type_ids) to target an exact entity in follow-up calls instead of re-resolving names. NEVER show ids to the user — refer to activities by name and to intervals by their times. Type names are fuzzy matched (exact, then substring); if a name does not resolve or is ambiguous, call list_activity_types and pick from the tree. Groups organize types and cannot be started/logged, but may be used as report filters.',
       '- Reporting tools accept period words (today, yesterday, this_week, last_week, this_month, last_month, last_7_days, last_30_days) or explicit dates; times use the user\'s ATimeLogger timezone unless a timezone parameter is given.',
       '- Durations are returned humanized (e.g. "2h 15m").',
       "",

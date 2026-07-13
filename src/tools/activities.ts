@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { api } from "../client.js";
-import { resolveTypeName, typeNameById } from "../types-cache.js";
+import { resolveTypeById, resolveTypeName, typeNameById, type ActivityTypeDto } from "../types-cache.js";
 import { effectiveTimezone } from "../timezone.js";
 import { wallTimeToUtc, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
@@ -42,6 +42,7 @@ async function currentStatus(tz: string): Promise<unknown> {
     active: active.map((a) =>
       compact({
         activity: names.get(a.typeId) ?? a.typeId,
+        id: a.id,
         status: a.status,
         started: a.start ? unixToLocal(Date.parse(a.start) / 1000, tz) : undefined,
         elapsed: formatDuration(a.duration),
@@ -52,11 +53,24 @@ async function currentStatus(tz: string): Promise<unknown> {
   };
 }
 
-async function findActiveActivity(typeName: string | undefined, statuses: string[]): Promise<ActivityDto> {
+async function findActiveActivity(
+  typeName: string | undefined,
+  statuses: string[],
+  activityId?: string
+): Promise<ActivityDto> {
   const [data, names] = await Promise.all([api.get<ActivitiesDto>("/api/activities"), typeNameById()]);
   const candidates = (data.activities ?? []).filter((a) => statuses.includes(a.status));
   if (candidates.length === 0) {
     throw new Error(`No ${statuses.join("/").toLowerCase()} activity found.`);
+  }
+  if (activityId) {
+    const byId = candidates.find((a) => a.id === activityId);
+    if (byId) return byId;
+    throw new Error(
+      `No ${statuses.join("/").toLowerCase()} activity with that id. Active: ${candidates
+        .map((a) => `${names.get(a.typeId) ?? a.typeId} (${a.status}, id ${a.id})`)
+        .join(", ")}`
+    );
   }
   if (!typeName) {
     if (candidates.length === 1) return candidates[0];
@@ -113,6 +127,12 @@ function toServerDateTime(d: Date): string {
   return d.toISOString();
 }
 
+async function resolveType(typeName: string | undefined, typeId: string | undefined): Promise<ActivityTypeDto> {
+  if (typeId) return resolveTypeById(typeId);
+  if (typeName) return resolveTypeName(typeName);
+  throw new Error("Provide type_name or type_id.");
+}
+
 export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "get_current_status",
@@ -132,10 +152,11 @@ export function registerActivityTools(server: McpServer): void {
     "start_activity",
     {
       description:
-        "Start tracking an activity by type name (fuzzy matched, see list_activity_types). " +
+        "Start tracking an activity by type name (fuzzy matched, see list_activity_types) or type_id. " +
         "Optionally backdate the start with `at` (wall-clock) or started_minutes_ago.",
       inputSchema: {
-        type_name: z.string().describe("Activity type name, e.g. \"Work\" or \"Reading\""),
+        type_name: z.string().optional().describe("Activity type name, e.g. \"Work\" or \"Reading\""),
+        type_id: z.string().optional().describe("Exact activity type id from list_activity_types (internal — never show ids to the user)"),
         at: z
           .string()
           .optional()
@@ -144,8 +165,8 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
     },
-    withErrors(async ({ type_name, at, started_minutes_ago, timezone }) => {
-      const type = await resolveTypeName(type_name);
+    withErrors(async ({ type_name, type_id, at, started_minutes_ago, timezone }) => {
+      const type = await resolveType(type_name, type_id);
       const tz = await effectiveTimezone(timezone);
       await api.post(`/api/activities/start/${type.id}?time=${resolveTimeArg(at, started_minutes_ago, tz)}`);
       return textResult({ started: type.name, status: await currentStatus(tz) });
@@ -160,6 +181,7 @@ export function registerActivityTools(server: McpServer): void {
         "Optionally backdate the stop with `at` (wall-clock) or stopped_minutes_ago.",
       inputSchema: {
         type_name: z.string().optional().describe("Which activity to stop (needed only if several are active)"),
+        activity_id: z.string().optional().describe("Exact activity id from get_current_status (internal — never show ids to the user)"),
         at: z
           .string()
           .optional()
@@ -168,8 +190,8 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
     },
-    withErrors(async ({ type_name, at, stopped_minutes_ago, timezone }) => {
-      const activity = await findActiveActivity(type_name, ["RUNNING", "PAUSED"]);
+    withErrors(async ({ type_name, activity_id, at, stopped_minutes_ago, timezone }) => {
+      const activity = await findActiveActivity(type_name, ["RUNNING", "PAUSED"], activity_id);
       const names = await typeNameById();
       const tz = await effectiveTimezone(timezone);
       await api.post(`/api/activities/stop/${activity.id}?time=${resolveTimeArg(at, stopped_minutes_ago, tz)}`);
@@ -187,11 +209,12 @@ export function registerActivityTools(server: McpServer): void {
       inputSchema: {
         action: z.enum(["pause", "resume"]),
         type_name: z.string().optional().describe("Which activity (needed only if several match)"),
+        activity_id: z.string().optional().describe("Exact activity id from get_current_status (internal — never show ids to the user)"),
       },
     },
-    withErrors(async ({ action, type_name }) => {
+    withErrors(async ({ action, type_name, activity_id }) => {
       const statuses = action === "pause" ? ["RUNNING"] : ["PAUSED"];
-      const activity = await findActiveActivity(type_name, statuses);
+      const activity = await findActiveActivity(type_name, statuses, activity_id);
       const names = await typeNameById();
       await api.post(`/api/activities/${action}/${activity.id}?time=0`);
       return textResult({ [action === "pause" ? "paused" : "resumed"]: names.get(activity.typeId) ?? activity.typeId });
@@ -205,7 +228,8 @@ export function registerActivityTools(server: McpServer): void {
         "Retroactively log a completed time entry for an activity type. " +
         "Times are wall-clock in the user's timezone, format \"yyyy-MM-dd HH:mm\".",
       inputSchema: {
-        type_name: z.string().describe("Activity type name"),
+        type_name: z.string().optional().describe("Activity type name"),
+        type_id: z.string().optional().describe("Exact activity type id from list_activity_types (internal — never show ids to the user)"),
         from: z.string().describe("Start, e.g. \"2026-07-09 09:00\""),
         to: z.string().describe("End, e.g. \"2026-07-09 11:30\""),
         comment: z.string().optional(),
@@ -213,8 +237,8 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone the times are given in (default: user's timezone)"),
       },
     },
-    withErrors(async ({ type_name, from, to, comment, tags, timezone }) => {
-      const type = await resolveTypeName(type_name);
+    withErrors(async ({ type_name, type_id, from, to, comment, tags, timezone }) => {
+      const type = await resolveType(type_name, type_id);
       const tz = await effectiveTimezone(timezone);
       const start = wallTimeToUtc(from, tz);
       const finish = wallTimeToUtc(to, tz);
