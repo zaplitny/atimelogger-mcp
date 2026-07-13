@@ -21,7 +21,7 @@ export function loadConfig(): Config {
         "-e ATL_TOKEN=atl_pat_... -- node " +
         new URL("./index.js", import.meta.url).pathname +
         "\n" +
-        "(or run `npm run setup` in atl-mcp/ to paste the token interactively)\n"
+        "(or run `npm run setup` in atimelogger-mcp/ to paste the token interactively)\n"
     );
     process.exit(1);
   }

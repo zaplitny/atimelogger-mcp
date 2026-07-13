@@ -33,7 +33,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(
       res.status,
       "",
-      "Authentication failed: ATL_TOKEN is invalid, expired, or revoked. Generate a new Personal Access Token in the ATimeLogger web app (Settings -> API Tokens) and update ATL_TOKEN in the MCP config (or run `npm run setup` in atl-mcp/)."
+      "Authentication failed: ATL_TOKEN is invalid, expired, or revoked. Generate a new Personal Access Token in the ATimeLogger web app (Settings -> API Tokens) and update ATL_TOKEN in the MCP config (or run `npm run setup` in atimelogger-mcp/)."
     );
   }
   const text = await res.text();

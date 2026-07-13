@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-`atl-mcp` — a standalone MCP (Model Context Protocol) server, TypeScript over stdio, that wraps the ATimeLogger REST API for use from Claude Desktop / Claude Code. It exposes 8 tools: `get_current_status`, `list_activity_types`, `start_activity`, `stop_activity`, `pause_resume_activity`, `log_interval`, `time_report`, `list_intervals`.
+`atimelogger-mcp` — a standalone MCP (Model Context Protocol) server, TypeScript over stdio, that wraps the ATimeLogger REST API for use from Claude Desktop / Claude Code. It exposes 8 tools: `get_current_status`, `list_activity_types`, `start_activity`, `stop_activity`, `pause_resume_activity`, `log_interval`, `time_report`, `list_intervals`.
 
 The backend is a separate Spring Boot app (source at `~/Projects/atl` on this machine); this repo never modifies it — it is a pure API client.
 

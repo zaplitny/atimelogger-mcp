@@ -23,7 +23,7 @@ The setup script prints ready-to-use registration snippets for both clients:
 ```bash
 claude mcp add atl \
   -e ATL_TOKEN=atl_pat_... \
-  -- node /absolute/path/to/atl-mcp/dist/index.js
+  -- node /absolute/path/to/atimelogger-mcp/dist/index.js
 ```
 
 **Claude Desktop** — a JSON block to merge into `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows), then restart Claude Desktop:
@@ -33,7 +33,7 @@ claude mcp add atl \
   "mcpServers": {
     "atl": {
       "command": "node",
-      "args": ["/absolute/path/to/atl-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/atimelogger-mcp/dist/index.js"],
       "env": {
         "ATL_TOKEN": "atl_pat_..."
       }
