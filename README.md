@@ -34,8 +34,6 @@ claude mcp add atimelogger \
 }
 ```
 
-The server targets production (`https://app.atimelogger.pro`) by default — no URL configuration needed. To work against a different backend, set `ATL_BASE_URL` the same way as `ATL_TOKEN` (an extra `-e` flag or `env` entry). Generate the token in the web UI of the **same** server you point the MCP at.
-
 ### Running from source
 
 Instead of the published package, you can clone and build:
@@ -46,8 +44,6 @@ npm install
 npm run build
 npm run setup        # paste the token, verifies it, prints registration snippets pointing at the local build
 ```
-
-The setup script accepts `--url <base-url>` for a non-production backend and includes `ATL_BASE_URL` in the printed snippets.
 
 Troubleshooting: a 401 from any tool means the token is invalid, expired, or was revoked — generate a new one in **Settings → API Tokens** and update `ATL_TOKEN` in the MCP config.
 
