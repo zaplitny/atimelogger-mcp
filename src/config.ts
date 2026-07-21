@@ -18,10 +18,8 @@ export function loadConfig(): Config {
         "Then register the server with:\n" +
         "  claude mcp add atimelogger " +
         baseUrlArg +
-        "-e ATL_TOKEN=atl_pat_... -- node " +
-        new URL("./index.js", import.meta.url).pathname +
-        "\n" +
-        "(or run `npm run setup` in atimelogger-mcp/ to paste the token interactively)\n"
+        "-e ATL_TOKEN=atl_pat_... -- npx -y atimelogger-mcp\n" +
+        "(from a source checkout, run `npm run setup` to paste the token interactively)\n"
     );
     process.exit(1);
   }

@@ -3,16 +3,37 @@
   "version": "0.1.0",
   "description": "MCP server exposing the ATimeLogger REST API (activities, reports, types)",
   "type": "module",
+  "license": "MIT",
+  "author": "Sergei Zaplitny",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zaplitny/atimelogger-mcp.git"
+  },
+  "homepage": "https://github.com/zaplitny/atimelogger-mcp#readme",
+  "bugs": "https://github.com/zaplitny/atimelogger-mcp/issues",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "atimelogger",
+    "time-tracking",
+    "claude"
+  ],
+  "mcpName": "io.github.zaplitny/atimelogger-mcp",
   "bin": {
     "atimelogger-mcp": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "setup": "tsx scripts/setup.ts"
+    "setup": "tsx scripts/setup.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
