@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTypeTools } from "./tools/types.js";
@@ -7,10 +9,12 @@ import { loadConfig } from "./config.js";
 
 loadConfig(); // fail fast with setup instructions if ATL_TOKEN is missing
 
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+
 const server = new McpServer(
   {
     name: "atimelogger",
-    version: "0.1.0",
+    version,
   },
   {
     instructions: [

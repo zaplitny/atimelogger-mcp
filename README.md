@@ -8,22 +8,14 @@ Requires Node 20+.
 
 1. Generate a **Personal Access Token** in the ATimeLogger web app: **Settings → API Tokens → Generate token**. The value (starting with `atl_pat_`) is shown **only once** — copy it right away. You can revoke the token from the same page at any time.
 
-2. Build the server and register it:
-
-```bash
-npm install
-npm run build
-npm run setup        # paste the token, verifies it, prints the registration command
-```
-
-The setup script prints ready-to-use registration snippets for both clients:
+2. Register the server. No install or build step needed — `npx` fetches the [published package](https://www.npmjs.com/package/atimelogger-mcp) on first run:
 
 **Claude Code** — a one-liner:
 
 ```bash
 claude mcp add atimelogger \
   -e ATL_TOKEN=atl_pat_... \
-  -- node /absolute/path/to/atimelogger-mcp/dist/index.js
+  -- npx -y atimelogger-mcp
 ```
 
 **Claude Desktop** — a JSON block to merge into `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows), then restart Claude Desktop:
@@ -32,8 +24,8 @@ claude mcp add atimelogger \
 {
   "mcpServers": {
     "atimelogger": {
-      "command": "node",
-      "args": ["/absolute/path/to/atimelogger-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "atimelogger-mcp"],
       "env": {
         "ATL_TOKEN": "atl_pat_..."
       }
@@ -42,7 +34,16 @@ claude mcp add atimelogger \
 }
 ```
 
-The server targets production (`https://app.atimelogger.pro`) by default — no URL configuration needed. To work against a different backend, set `ATL_BASE_URL` explicitly: pass `--url <base-url>` to the setup script (or set the env var), and it will include `ATL_BASE_URL` in the printed snippets. Generate the token in the web UI of the **same** server you point the MCP at.
+### Running from source
+
+Instead of the published package, you can clone and build:
+
+```bash
+git clone https://github.com/zaplitny/atimelogger-mcp && cd atimelogger-mcp
+npm install
+npm run build
+npm run setup        # paste the token, verifies it, prints registration snippets pointing at the local build
+```
 
 Troubleshooting: a 401 from any tool means the token is invalid, expired, or was revoked — generate a new one in **Settings → API Tokens** and update `ATL_TOKEN` in the MCP config.
 

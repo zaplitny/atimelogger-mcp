@@ -50,6 +50,6 @@ Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUID
 
 ## Roadmap / known TODOs
 
-- Add `#!/usr/bin/env node` shebang to `src/index.ts` (required before the `bin` entry / npx works) before distributing. (Default `ATL_BASE_URL` already points to prod.)
-- Distribution tiers discussed: npm package → MCPB (`.mcpb`) one-click bundle for Claude Desktop (PAT generation in Settings → API Tokens now covers the token-UX prerequisite) → hosted remote MCP server with OAuth 2.1 (would live in the backend as Spring AI MCP, not here).
+- npm packaging is ready (shebang, `bin`, `files: ["dist"]`, `prepack` build, MIT LICENSE, `mcpName` for the MCP registry) — first `npm publish` still pending.
+- Distribution tiers discussed: npm package (prepared, see above) → official MCP Registry (`mcp-publisher`, needs the npm publish first) → MCPB (`.mcpb`) one-click bundle for Claude Desktop (PAT generation in Settings → API Tokens now covers the token-UX prerequisite) → hosted remote MCP server with OAuth 2.1 (would live in the backend as Spring AI MCP, not here).
 - Backend prerequisites for public distribution: API-scoped tokens (PATs are revocable but still full-access).
