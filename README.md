@@ -115,26 +115,16 @@ Then talk to Claude as usual — "what am I tracking right now?", "where did my 
 
 The server speaks **stdio**, so to expose it over HTTPS you put a small proxy in front that serves it over **Streamable HTTP**, then terminate TLS with a reverse proxy. One working setup:
 
-**1. Run the server behind an HTTP proxy, in Docker.** Example `Dockerfile` (multi-stage — the build needs the TypeScript dev dependencies, the runtime image stays lean):
+**1. Run the server behind an HTTP proxy, in Docker.** The host only needs Docker — no source checkout, no Node install. The image pulls the [published npm package](https://www.npmjs.com/package/atimelogger-mcp) plus [`mcp-proxy`](https://www.npmjs.com/package/mcp-proxy), which serves the stdio server over Streamable HTTP:
 
 ```dockerfile
-# build stage — needs devDeps (typescript) to compile
-FROM node:22-slim AS build
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-# runtime stage — prod deps + the stdio→HTTP proxy
 FROM node:22-slim
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev && npm i -g mcp-proxy
-COPY --from=build /app/dist ./dist
+RUN npm i -g atimelogger-mcp mcp-proxy
 EXPOSE 8080
-CMD ["mcp-proxy","--port","8080","--","node","dist/index.js"]
+CMD ["mcp-proxy", "--port", "8080", "--", "atimelogger-mcp"]
 ```
+
+Pin a version (`npm i -g atimelogger-mcp@0.1.0`) if you want reproducible rebuilds; to upgrade later, rebuild with `--no-cache` (or bump the pin) and recreate the container.
 
 Build and run it, bound to **localhost only**, with your token passed as an env var:
 
