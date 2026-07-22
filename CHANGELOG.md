@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-22
+
+### Changed
+
+- README: the ChatGPT (Developer Mode) section now links the [official guide](https://developers.openai.com/api/docs/guides/developer-mode) instead of hardcoding plan/region specifics, which change over time; noted that a connector set up in the web app also works in the ChatGPT mobile apps.
+
 ## [0.1.1] - 2026-07-22
 
 ### Added
@@ -32,5 +38,6 @@ First public release on npm as [`atimelogger-mcp`](https://www.npmjs.com/package
 - `npm run setup` script: verifies a pasted token and prints ready-to-use registration snippets.
 - npm packaging (`npx atimelogger-mcp`) and README guides for Claude Code, Claude Desktop, and a self-hosted remote endpoint (Custom Connector) behind Docker + nginx.
 
+[0.1.2]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zaplitny/atimelogger-mcp/releases/tag/v0.1.0

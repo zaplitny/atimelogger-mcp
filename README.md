@@ -112,7 +112,7 @@ Activity names are fuzzy-matched against your own type list, so "start dev" find
 
 ## Remote server (Custom Connector)
 
-Besides the local stdio setup above, the server can run as a **remote MCP server** and connect to Claude as a **Custom Connector** — or to ChatGPT via **Developer Mode** (section C). This is the path to use if you want to reach your ATimeLogger data from **claude.ai in the browser, the Claude mobile apps, or the ChatGPT web app**, where local stdio servers aren't available.
+Besides the local stdio setup above, the server can run as a **remote MCP server** and connect to Claude as a **Custom Connector** — or to ChatGPT via **Developer Mode** (section C). This is the path to use if you want to reach your ATimeLogger data from **claude.ai in the browser, the Claude mobile apps, or the ChatGPT web/mobile apps**, where local stdio servers aren't available.
 
 There are two audiences here: people who just want to **connect** to a running endpoint, and people who want to **self-host** their own.
 
@@ -207,17 +207,18 @@ Set transport type to **Streamable HTTP**, enter the URL, and check that the han
 
 ### C. Connect from ChatGPT (Developer Mode)
 
-The same remote endpoint works in the ChatGPT web app as a custom MCP connector. Requirements: a **Plus or Pro** plan (business plans work too if the admin allows it) and the **Developer Mode** beta — it's not available on the Free tier or in the EEA/UK/Switzerland.
+The same remote endpoint works in the ChatGPT web app as a custom MCP app via **Developer Mode** (paid plans). The exact settings location and flow change from time to time — follow the official guide: <https://developers.openai.com/api/docs/guides/developer-mode>. In short:
 
-1. In ChatGPT go to **Settings → Apps & Connectors → Advanced settings** and enable **Developer mode**.
-2. Back in **Apps & Connectors**, choose **Create** (add a custom connector), enter a name and the server URL ending in `/mcp`, and set authentication to **None** (the ATimeLogger token lives server-side; see the security note above).
-3. In a chat, enable the connector from the tools/plus menu, then talk as usual — "what am I tracking right now?", "log 2 hours of reading yesterday 9 to 11pm".
+1. Enable **Developer mode** in ChatGPT settings (see the guide for where it currently lives).
+2. Create a new app/connector for the server URL ending in `/mcp`, with authentication set to **None** (the ATimeLogger token lives server-side; see the security note above).
+3. Enable it in a chat, then talk as usual — "what am I tracking right now?", "log 2 hours of reading yesterday 9 to 11pm".
 
 Notes:
 
+- Set it up once in the **web** app; after that the connector also works in the ChatGPT **mobile** apps.
 - ChatGPT connects **from OpenAI's infrastructure**, so the endpoint must be publicly reachable — same rule as for Claude custom connectors.
-- Don't confuse this with ChatGPT's classic **connectors for Deep Research**: those require an MCP server exposing only `search`/`fetch` tools and are Pro-gated. This server exposes action tools (timers, logging, reports), so Developer Mode is the path that works.
-- Write actions (starting/stopping timers, logging entries) ask for confirmation in ChatGPT before running — that's Developer Mode's default safety behavior.
+- Write actions (starting/stopping timers, logging entries) ask for confirmation in ChatGPT before running by default.
+- Plan, region, and feature limitations may apply and change over time — check the official documentation for the current state. (Don't confuse Developer Mode with ChatGPT's `search`/`fetch`-only connectors for Deep Research — this server exposes action tools, so Developer Mode is the path that works.)
 
 ## Limitations
 
