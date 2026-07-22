@@ -1,0 +1,37 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.zaplitny/atimelogger-mcp",
+  "description": "MCP server exposing the ATimeLogger REST API (activities, reports, types)",
+  "repository": {
+    "url": "https://github.com/zaplitny/atimelogger-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/zaplitny/atimelogger-mcp#readme",
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "atimelogger-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ATL_TOKEN",
+          "description": "ATimeLogger Personal Access Token (atl_pat_...), generated in the web app under Settings -> API Tokens",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "ATL_BASE_URL",
+          "description": "Base URL of the ATimeLogger backend (default: https://app.atimelogger.pro)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

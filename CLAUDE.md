@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-`atimelogger-mcp` — a standalone MCP (Model Context Protocol) server, TypeScript over stdio, that wraps the ATimeLogger REST API for use from Claude Desktop / Claude Code. It exposes 8 tools: `get_current_status`, `list_activity_types`, `start_activity`, `stop_activity`, `pause_resume_activity`, `log_interval`, `time_report`, `list_intervals`.
+`atimelogger-mcp` — a standalone MCP (Model Context Protocol) server, TypeScript over stdio, that wraps the ATimeLogger REST API for use from Claude Desktop / Claude Code. It exposes 9 tools: `get_current_status`, `list_activity_types`, `start_activity`, `stop_activity`, `pause_resume_activity`, `log_interval`, `update_activity`, `time_report`, `list_intervals`.
 
 The backend is a separate, private Spring Boot app; this repo never modifies it — it is a pure API client.
 
@@ -46,7 +46,8 @@ Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUID
 - **Current activities**: `GET /api/activities` → `{activities, types}`; filter client-side by `status` RUNNING/PAUSED.
 - **Statistics**: `POST /api/statistics` `{types?, tags?, from, to, timezone?, groupBy: DAY|WEEK|MONTH}` → pre-aggregated, durations in seconds, `groupedStatistics` is a recursive type hierarchy.
 - **History**: `POST /api/intervals?page&size` (Spring `Page` of day groups, server default size 5) body `{types?, tags?, from, to, timezone}`; **max 100-day range** (server rejects beyond).
-- **Server-side quirks**: `PUT /api/activities/{id}` interval merging is an unfinished TODO in the backend — do not build an edit-activity tool on it; the start endpoint cannot attach a comment.
+- **Update (comment/tags)**: `GET /api/activities/{id}` returns the full ActivityDto (intervals carry both `start`/`finish` and `from`/`to`); `PUT /api/activities/{id}` replaces the whole record via a server-side merge (`ActivityService.merge`, integration-tested): tags/intervals are matched by id, and **any interval missing from the payload is soft-deleted** — so `update_activity` does read-modify-write, round-tripping the GET response verbatim and touching only `comment`/`tags`. The PUT reads only interval `start`/`finish` (never `from`/`to`), returns an empty body, and validation requires: stopped/paused ⇒ top-level `start` null + non-empty intervals; running ⇒ `start` set. (A stale `// todo` above the backend merge code once suggested it was unfinished — it is implemented and tested, verified 2026-07.)
+- **Server-side quirks**: the start endpoint cannot attach a comment; activity update does not push a realtime event (other devices see it on next sync).
 
 ## Roadmap / known TODOs
 

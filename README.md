@@ -1,6 +1,6 @@
 # ATimeLogger MCP Server
 
-A standalone MCP (Model Context Protocol) server that exposes the ATimeLogger REST API to Claude — locally over stdio (Claude Desktop / Claude Code) or remotely as a Custom Connector (claude.ai in the browser, Claude mobile apps). Scope: activities (start/stop/pause/log), reports/history, and activity types.
+A standalone MCP (Model Context Protocol) server that exposes the ATimeLogger REST API to AI assistants — locally over stdio (Claude Desktop / Claude Code / OpenAI Codex) or remotely as a connector (claude.ai in the browser, Claude mobile apps, ChatGPT). Scope: activities (start/stop/pause/log), reports/history, and activity types.
 
 ## Setup
 
@@ -34,6 +34,23 @@ claude mcp add atimelogger \
 }
 ```
 
+**OpenAI Codex** (CLI, IDE extension, or the ChatGPT desktop app's Codex mode) — also a one-liner; the configuration is shared by all three Codex surfaces:
+
+```bash
+codex mcp add atimelogger --env ATL_TOKEN=atl_pat_... -- npx -y atimelogger-mcp
+```
+
+Equivalent `~/.codex/config.toml` block:
+
+```toml
+[mcp_servers.atimelogger]
+command = "npx"
+args = ["-y", "atimelogger-mcp"]
+env = { "ATL_TOKEN" = "atl_pat_..." }
+```
+
+MCP support in Codex is not gated by plan — it works with any ChatGPT subscription that includes Codex, or with a plain API key. (Using the tools from the ChatGPT **web/mobile** app is a different path — see **Connect from ChatGPT** below.)
+
 ### Running from source
 
 Instead of the published package, you can clone and build:
@@ -57,6 +74,7 @@ Troubleshooting: a 401 from any tool means the token is invalid, expired, or was
 | `stop_activity` | Stop the active activity (name optional if only one is active); same backdating options |
 | `pause_resume_activity` | Pause or resume |
 | `log_interval` | Retroactively log a completed entry (wall-clock times, optional comment/tags) |
+| `update_activity` | Change the comment/tags of an existing entry (running or past) without touching its times |
 | `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates) |
 | `list_intervals` | Raw history grouped by day, paged, max 100-day range |
 
@@ -78,6 +96,10 @@ Things you can say to your assistant once the server is registered:
 
 > "Log 2 hours of Reading yesterday from 9 to 11pm" · "Add a gym session for last Saturday morning, 90 minutes, tag it 'legs'" · "I slept from 23:30 to 7:15, log it"
 
+**Annotating existing entries**
+
+> "Add a note to the current timer: reviewing the Q3 report" · "Tag this morning's Work session with 'client-x'" · "Update yesterday's meeting entry — it was the architecture sync"
+
 **Reports & history**
 
 > "Where did my week go?" · "How much did I work in June, broken down by week?" · "Compare my sleep this month vs last month" · "Show everything I tracked today" · "Which day last week had the most Development time?"
@@ -90,7 +112,7 @@ Activity names are fuzzy-matched against your own type list, so "start dev" find
 
 ## Remote server (Custom Connector)
 
-Besides the local stdio setup above, the server can run as a **remote MCP server** and connect to Claude as a **Custom Connector**. This is the path to use if you want to reach your ATimeLogger data from **claude.ai in the browser or the Claude mobile apps**, where local stdio servers aren't available.
+Besides the local stdio setup above, the server can run as a **remote MCP server** and connect to Claude as a **Custom Connector** — or to ChatGPT via **Developer Mode** (section C). This is the path to use if you want to reach your ATimeLogger data from **claude.ai in the browser, the Claude mobile apps, or the ChatGPT web app**, where local stdio servers aren't available.
 
 There are two audiences here: people who just want to **connect** to a running endpoint, and people who want to **self-host** their own.
 
@@ -183,8 +205,22 @@ Set transport type to **Streamable HTTP**, enter the URL, and check that the han
 > - Only bind the container to `127.0.0.1` (as above) so the raw HTTP port is never exposed directly — nginx stays the only public door.
 > - Treat the token like a password; rotate it from **Settings → API Tokens** if it's ever exposed.
 
+### C. Connect from ChatGPT (Developer Mode)
+
+The same remote endpoint works in the ChatGPT web app as a custom MCP connector. Requirements: a **Plus or Pro** plan (business plans work too if the admin allows it) and the **Developer Mode** beta — it's not available on the Free tier or in the EEA/UK/Switzerland.
+
+1. In ChatGPT go to **Settings → Apps & Connectors → Advanced settings** and enable **Developer mode**.
+2. Back in **Apps & Connectors**, choose **Create** (add a custom connector), enter a name and the server URL ending in `/mcp`, and set authentication to **None** (the ATimeLogger token lives server-side; see the security note above).
+3. In a chat, enable the connector from the tools/plus menu, then talk as usual — "what am I tracking right now?", "log 2 hours of reading yesterday 9 to 11pm".
+
+Notes:
+
+- ChatGPT connects **from OpenAI's infrastructure**, so the endpoint must be publicly reachable — same rule as for Claude custom connectors.
+- Don't confuse this with ChatGPT's classic **connectors for Deep Research**: those require an MCP server exposing only `search`/`fetch` tools and are Pro-gated. This server exposes action tools (timers, logging, reports), so Developer Mode is the path that works.
+- Write actions (starting/stopping timers, logging entries) ask for confirmation in ChatGPT before running — that's Developer Mode's default safety behavior.
+
 ## Limitations
 
-- `start_activity` cannot attach a comment (the underlying start endpoint takes only a type and time); use `log_interval` for entries with comments/tags.
-- No editing of existing entries (the server-side update API is incomplete).
+- `start_activity` cannot attach a comment (the underlying start endpoint takes only a type and time); add one afterwards with `update_activity`, or use `log_interval` for retroactive entries with comments/tags.
+- Only comments and tags of existing entries can be edited (`update_activity`); interval times cannot be changed and entries cannot be deleted — use the ATimeLogger app for that.
 - History requests are capped at 100 days by the backend.

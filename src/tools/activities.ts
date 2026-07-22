@@ -262,4 +262,50 @@ export function registerActivityTools(server: McpServer): void {
       });
     })
   );
+
+  server.registerTool(
+    "update_activity",
+    {
+      description:
+        "Update the comment and/or tags of an existing entry (running, paused, or stopped) without changing its tracked time. " +
+        "Use this instead of logging a new entry when the user wants to annotate, describe, or re-tag something already tracked. " +
+        "Get activity_id from get_current_status (active timers) or list_intervals (past entries).",
+      inputSchema: {
+        activity_id: z
+          .string()
+          .describe("Activity id from get_current_status or list_intervals (internal — never show ids to the user)"),
+        comment: z.string().optional().describe("New comment — replaces the existing one; \"\" clears it"),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe("Full new tag list — replaces existing tags (include current tags to keep them); [] clears them"),
+      },
+    },
+    withErrors(async ({ activity_id, comment, tags }) => {
+      if (comment === undefined && tags === undefined) {
+        throw new Error("Nothing to update — provide comment and/or tags.");
+      }
+      // Read-modify-write: the backend PUT replaces the whole activity, and any
+      // interval missing from the payload gets deleted — so round-trip the
+      // record verbatim and touch only the requested fields.
+      const activity = await api.get<ActivityDto>(`/api/activities/${activity_id}`);
+      if (comment !== undefined) activity.comment = comment;
+      if (tags !== undefined) activity.tags = tags;
+      await api.put(`/api/activities/${activity_id}`, activity);
+      const [updated, names] = await Promise.all([
+        api.get<ActivityDto>(`/api/activities/${activity_id}`),
+        typeNameById(),
+      ]);
+      return textResult(
+        compact({
+          updated: names.get(updated.typeId) ?? updated.typeId,
+          id: updated.id,
+          status: updated.status,
+          comment: updated.comment,
+          tags: updated.tags,
+          tracked: formatDuration(updated.duration),
+        })
+      );
+    })
+  );
 }

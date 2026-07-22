@@ -55,6 +55,7 @@ function shapeStatItems(items: StatItem[] | undefined, names: Map<string, string
 
 interface IntervalDto {
   id: string;
+  activityId?: string;
   from: number;
   to: number;
   typeId: string;
@@ -155,6 +156,7 @@ export function registerReportTools(server: McpServer): void {
               compact({
                 type: names.get(i.typeId) ?? i.typeId,
                 id: i.id,
+                activity_id: i.activityId,
                 from: unixToLocal(i.from, tz),
                 to: unixToLocal(i.to, tz),
                 duration: formatDuration(i.duration),
