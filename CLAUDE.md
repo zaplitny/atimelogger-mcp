@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-`atimelogger-mcp` — a standalone MCP (Model Context Protocol) server, TypeScript over stdio, that wraps the ATimeLogger REST API for use from Claude Desktop / Claude Code. It exposes 9 tools: `get_current_status`, `list_activity_types`, `start_activity`, `stop_activity`, `pause_resume_activity`, `log_interval`, `update_activity`, `time_report`, `list_intervals`.
+`atimelogger-mcp` — a standalone MCP (Model Context Protocol) server, TypeScript over stdio, that wraps the ATimeLogger REST API for use from Claude Desktop / Claude Code. It exposes 10 tools: `get_current_status`, `list_activity_types`, `start_activity`, `stop_activity`, `pause_resume_activity`, `log_interval`, `update_activity`, `time_report`, `list_intervals`, `app_help`.
 
 The backend is a separate, private Spring Boot app; this repo never modifies it — it is a pure API client.
 
@@ -25,7 +25,7 @@ No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotoco
 ## Architecture
 
 - `src/index.ts` — entry: McpServer + StdioServerTransport, registers tool groups; declares server-level `instructions` (project overview + cross-tool conventions) surfaced to the LLM at initialize
-- `src/config.ts` — env: `ATL_BASE_URL` (default `https://app.atimelogger.pro`, i.e. production), `ATL_TOKEN` (required, fail fast; warns if it isn't an `atl_pat_` token)
+- `src/config.ts` — env: `ATL_BASE_URL` (default `https://app.atimelogger.pro`, i.e. production), `ATL_TOKEN` (optional: missing token → docs-only mode, stderr warning at startup and only `app_help` works — API tools throw setup instructions from client.ts; warns if the token isn't an `atl_pat_` token)
 - `src/client.ts` — fetch wrapper: bearer auth, error normalization (401 → regenerate-PAT guidance)
 - `src/types-cache.ts` — `/api/types` cached 60s; fuzzy type-name resolution (exact → substring; ambiguity/no-match → helpful errors). Groups excluded as start/log targets, allowed in report filters.
 - `src/timezone.ts` — default tz from `/api/users/me`, per-call override
@@ -33,6 +33,7 @@ No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotoco
 - `src/format.ts` — duration formatting ("2h 15m"), `compact()` null-stripping
 - `src/errors.ts` — `withErrors()` wrapper: tool handlers never throw, return `isError`
 - `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas)
+- `src/tools/docs.ts` — `app_help`: fetches the official docs site (`ATL_DOCS_URL`, default `https://atimelogger.pro/docs/`, unauthenticated, separate host from the API). No args → TOC from `help-index.json` (slug/title/summary per page, hand-maintained in the atimelogger-docs repo alongside the markdown sources, which the docs deploy copies into `site/`); `topics` → fetches `<slug>.md` pages (fuzzy slug/title match), strips `<figure>` blocks and `&#x20;`. Both cached in-process for 1h.
 - `scripts/setup.ts` — prompts for a pasted PAT, verifies it against `/api/users/me`, prints the ready `claude mcp add` command
 
 Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUIDs for machines: tools accept human type **names** (fuzzy resolved) and outputs carry internal `id` fields that tools also accept back (`type_id`, `activity_id`, `type_ids`) for exact targeting between calls — the server instructions tell the LLM to never show ids to the user. Responses are compact JSON with resolved names and humanized durations.
