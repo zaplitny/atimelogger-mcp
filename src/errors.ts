@@ -1,3 +1,7 @@
+/** Bad caller input (usage mistake), as opposed to a runtime/API failure. The
+ * MCP path treats it like any error; the CLI maps it to exit code 2. */
+export class UsageError extends Error {}
+
 export interface ToolResult {
   [key: string]: unknown;
   content: { type: "text"; text: string }[];

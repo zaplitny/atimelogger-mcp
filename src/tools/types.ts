@@ -30,6 +30,10 @@ function buildTree(types: ActivityTypeDto[], includeArchived: boolean): TypeNode
   return (byParent.get(null) ?? []).map(toNode);
 }
 
+export async function listTypes(includeArchived: boolean): Promise<{ types: TypeNode[] }> {
+  return { types: buildTree(await getTypes(), includeArchived) };
+}
+
 export function registerTypeTools(server: McpServer): void {
   server.registerTool(
     "list_activity_types",
@@ -42,8 +46,7 @@ export function registerTypeTools(server: McpServer): void {
       },
     },
     withErrors(async ({ include_archived }) => {
-      const tree = buildTree(await getTypes(), include_archived ?? false);
-      return textResult({ types: tree });
+      return textResult(await listTypes(include_archived ?? false));
     })
   );
 }

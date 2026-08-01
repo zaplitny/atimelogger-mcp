@@ -110,6 +110,19 @@ Things you can say to your assistant once the server is registered:
 
 Activity names are fuzzy-matched against your own type list, so "start dev" finds "Development"; the assistant asks when a name is ambiguous.
 
+## Read-only CLI
+
+The package also installs `atimelogger-cli` — a minimal **read-only** JSON CLI for scripts and automation (cron jobs, status bars, shell pipelines) where speaking MCP is impractical. It reuses the same internals as the MCP tools: fuzzy type names, period words, DST-correct timezones, humanized durations.
+
+```bash
+export ATL_TOKEN=atl_pat_...
+npx -y -p atimelogger-mcp atimelogger-cli status
+atimelogger-cli report --period this_week --type work
+atimelogger-cli intervals --period yesterday --tag gym --compact | jq .
+```
+
+Commands: `status`, `types`, `report`, `intervals` — run `atimelogger-cli --help` for all options. Output is always JSON (pretty by default, `--compact` for one line); errors go to stderr as `{"error": "..."}` with exit code 1 (2 for usage mistakes). The CLI never starts, stops, or edits anything — write operations stay in the MCP server, where a human is in the loop; scripted writes from cron are retry-prone and can corrupt your timeline.
+
 ## Remote server (Custom Connector)
 
 Besides the local stdio setup above, the server can run as a **remote MCP server** and connect to Claude as a **Custom Connector** — or to ChatGPT via **Developer Mode** (section C). This is the path to use if you want to reach your ATimeLogger data from **claude.ai in the browser, the Claude mobile apps, or the ChatGPT web/mobile apps**, where local stdio servers aren't available.

@@ -1,3 +1,5 @@
+import { UsageError } from "./errors.js";
+
 export const PERIOD_WORDS = [
   "today",
   "yesterday",
@@ -61,20 +63,25 @@ export function periodToRange(period: PeriodWord, tz: string): DateRange {
 }
 
 export function resolveRange(
-  args: { period?: PeriodWord; from?: string; to?: string },
+  args: { period?: string; from?: string; to?: string },
   tz: string
 ): DateRange {
   if (args.period && (args.from || args.to)) {
-    throw new Error("Pass either `period` or explicit `from`/`to` dates, not both.");
+    throw new UsageError("Pass either `period` or explicit `from`/`to` dates, not both.");
   }
-  if (args.period) return periodToRange(args.period, tz);
+  if (args.period) {
+    if (!(PERIOD_WORDS as readonly string[]).includes(args.period)) {
+      throw new UsageError(`Unknown period "${args.period}" — use one of: ${PERIOD_WORDS.join(", ")}.`);
+    }
+    return periodToRange(args.period as PeriodWord, tz);
+  }
   if (args.from && args.to) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(args.from) || !/^\d{4}-\d{2}-\d{2}$/.test(args.to)) {
-      throw new Error("`from` and `to` must be yyyy-MM-dd dates.");
+      throw new UsageError("`from` and `to` must be yyyy-MM-dd dates.");
     }
     return { from: args.from, to: args.to };
   }
-  throw new Error("Provide `period` (e.g. \"this_week\") or both `from` and `to` dates.");
+  throw new UsageError("Provide `period` (e.g. \"this_week\") or both `from` and `to` dates.");
 }
 
 export function rangeDays(range: DateRange): number {

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `atimelogger-cli`: minimal read-only JSON CLI installed alongside the MCP server, for scripts and automation ([#3](https://github.com/zaplitny/atimelogger-mcp/issues/3)). Commands `status`, `types`, `report`, `intervals`; JSON on stdout (`--compact` for one line), `{"error"}` on stderr with exit codes 1/2. Reuses the MCP tools' internals (fuzzy type names, period words, timezones); deliberately excludes write operations.
+
 ## [0.1.2] - 2026-07-22
 
 ### Changed

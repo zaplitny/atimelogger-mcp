@@ -21,7 +21,8 @@
   ],
   "mcpName": "io.github.zaplitny/atimelogger-mcp",
   "bin": {
-    "atimelogger-mcp": "dist/index.js"
+    "atimelogger-mcp": "dist/index.js",
+    "atimelogger-cli": "dist/cli.js"
   },
   "files": [
     "dist"

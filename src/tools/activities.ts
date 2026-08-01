@@ -31,7 +31,7 @@ interface ActivitiesDto {
   activities: ActivityDto[];
 }
 
-async function currentStatus(tz: string): Promise<unknown> {
+export async function currentStatus(tz: string): Promise<unknown> {
   const [data, names] = await Promise.all([api.get<ActivitiesDto>("/api/activities"), typeNameById()]);
   const active = (data.activities ?? []).filter((a) => a.status === "RUNNING" || a.status === "PAUSED");
   const now = unixToLocal(Date.now() / 1000, tz);
