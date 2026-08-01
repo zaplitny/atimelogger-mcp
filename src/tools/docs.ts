@@ -1,9 +1,11 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { textResult, withErrors } from "../errors.js";
+import { loadConfig } from "../config.js";
+import { ttlCache, ttlCacheBy } from "../ttl-cache.js";
 
-// Public help site — unauthenticated, a different host than the API (ATL_BASE_URL).
-const docsUrl = (process.env.ATL_DOCS_URL ?? "https://atimelogger.pro/docs/").replace(/\/*$/, "/");
+// Public help site — unauthenticated, a different host than the API (baseUrl).
+const { docsUrl } = loadConfig();
 
 export interface HelpPage {
   slug: string;
@@ -17,8 +19,6 @@ export interface HelpIndex {
 }
 
 const TTL_MS = 3_600_000;
-let indexCache: { index: HelpIndex; at: number } | null = null;
-const pageCache = new Map<string, { text: string; at: number }>();
 
 async function fetchDocs(path: string): Promise<string> {
   let res: Response;
@@ -35,13 +35,24 @@ function unavailable(detail: string): string {
   return `ATimeLogger documentation is temporarily unavailable (${detail}) — point the user to ${docsUrl} instead.`;
 }
 
-export async function helpIndex(): Promise<HelpIndex> {
-  if (!indexCache || Date.now() - indexCache.at > TTL_MS) {
-    const parsed = JSON.parse(await fetchDocs("help-index.json")) as HelpIndex;
-    indexCache = { index: parsed, at: Date.now() };
-  }
-  return indexCache.index;
-}
+export const helpIndex = ttlCache(
+  TTL_MS,
+  async (): Promise<HelpIndex> => {
+    const body = await fetchDocs("help-index.json");
+    let parsed: HelpIndex;
+    try {
+      parsed = JSON.parse(body) as HelpIndex;
+    } catch {
+      // e.g. a CDN error page or SPA fallback served with status 200
+      throw new Error(unavailable("help-index.json is not valid JSON"));
+    }
+    if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
+      throw new Error(unavailable("help-index.json has no pages"));
+    }
+    return parsed;
+  },
+  { staleOnError: true }
+);
 
 // Screenshots and layout markup mean nothing over MCP — keep only the text.
 function normalize(md: string): string {
@@ -52,16 +63,19 @@ function normalize(md: string): string {
     .trim();
 }
 
-async function helpPage(slug: string): Promise<string> {
-  const cached = pageCache.get(slug);
-  if (cached && Date.now() - cached.at <= TTL_MS) return cached.text;
-  const text = normalize(await fetchDocs(`${slug}.md`));
-  pageCache.set(slug, { text, at: Date.now() });
-  return text;
-}
+const helpPage = ttlCacheBy(
+  TTL_MS,
+  async (slug: string) => normalize(await fetchDocs(`${slug}.md`)),
+  { staleOnError: true }
+);
 
 function resolveTopic(topic: string, pages: HelpPage[]): HelpPage {
   const needle = topic.trim().toLowerCase().replace(/\.md$/, "");
+  if (!needle) {
+    throw new Error(
+      "Empty help topic — call app_help without arguments for the table of contents and pass topic slugs from it."
+    );
+  }
   const exact = pages.find((p) => p.slug === needle);
   if (exact) return exact;
   const partial = pages.filter(
@@ -80,8 +94,8 @@ function resolveTopic(topic: string, pages: HelpPage[]): HelpPage {
 
 export async function helpPages(topics: string[]): Promise<string> {
   const { pages } = await helpIndex();
-  const resolved = topics.map((t) => resolveTopic(t, pages));
-  const sections = await Promise.all(resolved.map((p) => helpPage(p.slug)));
+  const slugs = [...new Set(topics.map((t) => resolveTopic(t, pages).slug))];
+  const sections = await Promise.all(slugs.map((s) => helpPage(s)));
   return sections.join("\n\n---\n\n");
 }
 
@@ -93,10 +107,9 @@ export function registerDocTools(server: McpServer): void {
         "Official ATimeLogger app documentation. Use it to answer any question about how the app works, " +
         "or how to do in the app what these tools cannot (edit entry times, delete records, goals, widgets, " +
         "CSV export, sync, backups, Pomodoro, Premium features). Call with no arguments for the table of " +
-        "contents, then again with `topics` to fetch the relevant pages — answer from the docs, not from " +
-        "memory. Cross-references like `sync.md` inside a page point to the topic with that slug. " +
-        "The documentation describes the iOS app: most features also exist on Android/web, but menu paths " +
-        "and UI details may differ — caveat this when the user is on another platform.",
+        "contents (its note covers platform applicability), then again with `topics` to fetch the relevant " +
+        "pages — answer from the docs, not from memory. Cross-references like `sync.md` inside a page point " +
+        "to the topic with that slug.",
       inputSchema: {
         topics: z
           .array(z.string())

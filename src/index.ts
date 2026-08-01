@@ -31,7 +31,7 @@ const server = new McpServer(
       "",
       "Choosing a tool: start_activity begins a timer now — or backdated via `at` (wall-clock \"HH:mm\") or started_minutes_ago — and cannot attach a comment; stop_activity backdates the same way; log_interval records a completed entry retroactively with optional comment/tags; update_activity changes the comment/tags of an existing entry (use it to annotate a running timer or a past entry — never log a duplicate entry just to attach a comment); time_report gives per-type aggregates; list_intervals gives raw history (max 100-day range, paged) whose entries carry the activity_id that update_activity needs. get_current_status returns the current wall-clock time (`now`) in the user's timezone — use it whenever you need a clock.",
       "",
-      "For questions about app features or anything these tools cannot do, consult app_help (official app documentation) before answering from memory — your prior knowledge describes the legacy aTimeLogger app and may be wrong. Entry times cannot be edited and entries cannot be deleted through this server: use app_help (topics history, batch-operations) to explain how to do it in the ATimeLogger app.",
+      "For questions about app features or anything these tools cannot do, consult app_help (official app documentation) before answering from memory — your prior knowledge describes the legacy aTimeLogger app and may be wrong. Entry times cannot be edited and entries cannot be deleted through this server: use app_help (pick the relevant topics from its table of contents) to explain how to do it in the ATimeLogger app.",
     ].join("\n"),
   }
 );

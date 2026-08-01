@@ -25,7 +25,7 @@ No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotoco
 ## Architecture
 
 - `src/index.ts` — entry: McpServer + StdioServerTransport, registers tool groups; declares server-level `instructions` (project overview + cross-tool conventions) surfaced to the LLM at initialize
-- `src/config.ts` — env: `ATL_BASE_URL` (default `https://app.atimelogger.pro`, i.e. production), `ATL_TOKEN` (optional: missing token → docs-only mode, stderr warning at startup and only `app_help` works — API tools throw setup instructions from client.ts; warns if the token isn't an `atl_pat_` token)
+- `src/config.ts` — env (all parsing lives here; `loadConfig()` is memoized): `ATL_BASE_URL` (default `https://app.atimelogger.pro`, i.e. production), `ATL_DOCS_URL` (default `https://atimelogger.pro/docs/`), `ATL_TOKEN` (optional: absent → docs-only mode, stderr warning at startup and only `app_help` works — API tools throw setup instructions from client.ts; set-but-empty or stray unrecognized `ATL_*` vars → fail fast, that's a botched config, not docs-only intent; warns if the token isn't an `atl_pat_` token)
 - `src/client.ts` — fetch wrapper: bearer auth, error normalization (401 → regenerate-PAT guidance)
 - `src/types-cache.ts` — `/api/types` cached 60s; fuzzy type-name resolution (exact → substring; ambiguity/no-match → helpful errors). Groups excluded as start/log targets, allowed in report filters.
 - `src/timezone.ts` — default tz from `/api/users/me`, per-call override
@@ -33,7 +33,8 @@ No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotoco
 - `src/format.ts` — duration formatting ("2h 15m"), `compact()` null-stripping
 - `src/errors.ts` — `withErrors()` wrapper: tool handlers never throw, return `isError`
 - `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas)
-- `src/tools/docs.ts` — `app_help`: fetches the official docs site (`ATL_DOCS_URL`, default `https://atimelogger.pro/docs/`, unauthenticated, separate host from the API). No args → TOC from `help-index.json` (slug/title/summary per page, hand-maintained in the atimelogger-docs repo alongside the markdown sources, which the docs deploy copies into `site/`); `topics` → fetches `<slug>.md` pages (fuzzy slug/title match), strips `<figure>` blocks and `&#x20;`. Both cached in-process for 1h.
+- `src/tools/docs.ts` — `app_help`: fetches the official docs site (config `docsUrl`, unauthenticated, separate host from the API). No args → TOC from `help-index.json` (slug/title/summary per page plus a platform `note`, hand-maintained in the atimelogger-docs repo alongside the markdown sources, which the docs deploy copies into `site/`); `topics` → fetches `<slug>.md` pages (fuzzy slug/title match, deduped), strips `<figure>` blocks and `&#x20;`. Non-JSON/shape-invalid manifest → the same "docs unavailable" guidance as network errors. Cached 1h with stale-on-error fallback.
+- `src/ttl-cache.ts` — shared `ttlCache`/`ttlCacheBy` helpers (single-value and keyed), opt-in `staleOnError` (used by docs.ts; deliberately NOT by types-cache.ts so API/auth errors surface)
 - `scripts/setup.ts` — prompts for a pasted PAT, verifies it against `/api/users/me`, prints the ready `claude mcp add` command
 
 Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUIDs for machines: tools accept human type **names** (fuzzy resolved) and outputs carry internal `id` fields that tools also accept back (`type_id`, `activity_id`, `type_ids`) for exact targeting between calls — the server instructions tell the LLM to never show ids to the user. Responses are compact JSON with resolved names and humanized durations.

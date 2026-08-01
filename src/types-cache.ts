@@ -1,4 +1,5 @@
 import { api } from "./client.js";
+import { ttlCache } from "./ttl-cache.js";
 
 export interface ActivityTypeDto {
   id: string;
@@ -13,15 +14,7 @@ export interface ActivityTypeDto {
   occurrence: boolean;
 }
 
-let cache: { types: ActivityTypeDto[]; at: number } | null = null;
-const TTL_MS = 60_000;
-
-export async function getTypes(): Promise<ActivityTypeDto[]> {
-  if (!cache || Date.now() - cache.at > TTL_MS) {
-    cache = { types: await api.get<ActivityTypeDto[]>("/api/types"), at: Date.now() };
-  }
-  return cache.types;
-}
+export const getTypes = ttlCache(60_000, () => api.get<ActivityTypeDto[]>("/api/types"));
 
 export async function typeNameById(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
