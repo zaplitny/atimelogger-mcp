@@ -1,4 +1,4 @@
-import { loadConfig } from "./config.js";
+import { loadConfig, setupInstructions } from "./config.js";
 
 const config = loadConfig();
 
@@ -13,6 +13,13 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (!config.token) {
+    throw new Error(
+      "ATL_TOKEN is not set — the server is in docs-only mode, only app_help (app documentation) works. " +
+        "To use time tracking, the user needs API access (part of the Premium Sync plan).\n" +
+        setupInstructions(config.baseUrl)
+    );
+  }
   const url = `${config.baseUrl}${path}`;
   let res: Response;
   try {

@@ -5,9 +5,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerTypeTools } from "./tools/types.js";
 import { registerActivityTools } from "./tools/activities.js";
 import { registerReportTools } from "./tools/reports.js";
+import { registerDocTools } from "./tools/docs.js";
 import { loadConfig } from "./config.js";
 
-loadConfig(); // fail fast with setup instructions if ATL_TOKEN is missing
+loadConfig(); // warns on stderr if ATL_TOKEN is missing (docs-only mode: only app_help works)
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -30,7 +31,7 @@ const server = new McpServer(
       "",
       "Choosing a tool: start_activity begins a timer now — or backdated via `at` (wall-clock \"HH:mm\") or started_minutes_ago — and cannot attach a comment; stop_activity backdates the same way; log_interval records a completed entry retroactively with optional comment/tags; update_activity changes the comment/tags of an existing entry (use it to annotate a running timer or a past entry — never log a duplicate entry just to attach a comment); time_report gives per-type aggregates; list_intervals gives raw history (max 100-day range, paged) whose entries carry the activity_id that update_activity needs. get_current_status returns the current wall-clock time (`now`) in the user's timezone — use it whenever you need a clock.",
       "",
-      "Entry times cannot be edited and entries cannot be deleted through this server — suggest the ATimeLogger app for those corrections.",
+      "For questions about app features or anything these tools cannot do, consult app_help (official app documentation) before answering from memory — your prior knowledge describes the legacy aTimeLogger app and may be wrong. Entry times cannot be edited and entries cannot be deleted through this server: use app_help (pick the relevant topics from its table of contents) to explain how to do it in the ATimeLogger app.",
     ].join("\n"),
   }
 );
@@ -38,6 +39,7 @@ const server = new McpServer(
 registerTypeTools(server);
 registerActivityTools(server);
 registerReportTools(server);
+registerDocTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

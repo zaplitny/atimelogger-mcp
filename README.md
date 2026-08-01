@@ -64,6 +64,8 @@ npm run setup        # paste the token, verifies it, prints registration snippet
 
 Troubleshooting: a 401 from any tool means the token is invalid, expired, or was revoked — generate a new one in **Settings → API Tokens** and update `ATL_TOKEN` in the MCP config.
 
+No token yet? The server also starts without `ATL_TOKEN` in **docs-only mode**: the `app_help` tool (official app documentation) works, so you can ask your assistant how ATimeLogger features work before setting up API access; the time-tracking tools return setup instructions until a token is configured.
+
 ## Tools
 
 | Tool | Purpose |
@@ -77,6 +79,7 @@ Troubleshooting: a 401 from any tool means the token is invalid, expired, or was
 | `update_activity` | Change the comment/tags of an existing entry (running or past) without touching its times |
 | `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates) |
 | `list_intervals` | Raw history grouped by day, paged, max 100-day range |
+| `app_help` | Official app documentation ([atimelogger.pro/docs](https://atimelogger.pro/docs/)) — the assistant looks up how app features work (goals, widgets, sync, export, …) instead of guessing |
 
 Tools accept human-readable type names (fuzzy matched); internal ids also flow through tool outputs and parameters for exact targeting, but are never shown to the user. Durations are returned as `"2h 15m"` strings; times are shown in the user's ATimeLogger timezone unless a `timezone` parameter is given.
 
@@ -223,5 +226,5 @@ Notes:
 ## Limitations
 
 - `start_activity` cannot attach a comment (the underlying start endpoint takes only a type and time); add one afterwards with `update_activity`, or use `log_interval` for retroactive entries with comments/tags.
-- Only comments and tags of existing entries can be edited (`update_activity`); interval times cannot be changed and entries cannot be deleted — use the ATimeLogger app for that.
+- Only comments and tags of existing entries can be edited (`update_activity`); interval times cannot be changed and entries cannot be deleted — use the ATimeLogger app for that (the assistant can explain how via `app_help`).
 - History requests are capped at 100 days by the backend.
