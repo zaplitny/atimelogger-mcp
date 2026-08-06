@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getTypes, type ActivityTypeDto } from "../types-cache.js";
+import type { ActivityTypeDto } from "../types-cache.js";
+import { defaultContext, type Ctx } from "../context.js";
 import { textResult, withErrors } from "../errors.js";
 
 interface TypeNode {
@@ -30,8 +31,11 @@ function buildTree(types: ActivityTypeDto[], includeArchived: boolean): TypeNode
   return (byParent.get(null) ?? []).map(toNode);
 }
 
-export async function listTypes(includeArchived: boolean): Promise<{ types: TypeNode[] }> {
-  return { types: buildTree(await getTypes(), includeArchived) };
+export async function listTypes(
+  includeArchived: boolean,
+  ctx: Ctx = defaultContext()
+): Promise<{ types: TypeNode[] }> {
+  return { types: buildTree(await ctx.types.getTypes(), includeArchived) };
 }
 
 export function registerTypeTools(server: McpServer): void {

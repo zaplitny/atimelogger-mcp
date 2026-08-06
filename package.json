@@ -24,6 +24,14 @@
     "atimelogger-mcp": "dist/index.js",
     "atimelogger-cli": "dist/cli.js"
   },
+  "types": "./dist/core.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist"
   ],

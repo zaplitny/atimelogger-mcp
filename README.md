@@ -123,6 +123,33 @@ atimelogger-cli intervals --period yesterday --tag gym --compact | jq .
 
 Commands: `status`, `types`, `report`, `intervals` — run `atimelogger-cli --help` for all options. Output is always JSON (pretty by default, `--compact` for one line); errors go to stderr as `{"error": "..."}` with exit code 1 (2 for usage mistakes). The CLI never starts, stops, or edits anything — write operations stay in the MCP server, where a human is in the loop; scripted writes from cron are retry-prone and can corrupt your timeline.
 
+## Library use (experimental)
+
+The package also exports its task-shaped core, so a long-running process can call ATimeLogger in-process instead of spawning a binary per request — useful for daemons, bots, editor plugins, or anything that wants the conveniences (fuzzy type names, period words, DST-correct timezones, humanized durations) without the MCP transport.
+
+```js
+import { createClient, clientFromEnv } from "atimelogger-mcp";
+
+const atl = createClient({ token });          // credentials passed explicitly
+// or, for the single-account case:
+const atl = clientFromEnv();                  // reads ATL_TOKEN + ATL_BASE_URL
+
+await atl.status();
+await atl.report({ period: "this_week", type_names: ["work"] });
+await atl.intervals({ period: "yesterday" });
+await atl.api.post(`/api/activities/start/${typeId}?time=0`);  // escape hatch for writes
+```
+
+Prefer `clientFromEnv()` over hand-rolling `createClient({ token: process.env.ATL_TOKEN })` — the latter ignores `ATL_BASE_URL` and would silently target production. Unlike the MCP server and the CLI, it throws rather than exiting the host process when no token is configured.
+
+Each client owns its own HTTP client and caches, so several accounts can coexist in one process. A `fetch` override makes fixture-backed testing straightforward, with no network access:
+
+```js
+const atl = createClient({ token: "test", baseUrl: "https://example.test", fetch: fakeFetch });
+```
+
+These clients are purely in-process — no daemon, no persisted state, nothing shared between invocations; keep the process alive to keep the caches warm. Importing the library never reads the environment. **Experimental while the package is 0.x**: signatures may change in a minor release, so pin an exact version if you depend on them.
+
 ## Remote server (Custom Connector)
 
 Besides the local stdio setup above, the server can run as a **remote MCP server** and connect to Claude as a **Custom Connector** — or to ChatGPT via **Developer Mode** (section C). This is the path to use if you want to reach your ATimeLogger data from **claude.ai in the browser, the Claude mobile apps, or the ChatGPT web/mobile apps**, where local stdio servers aren't available.

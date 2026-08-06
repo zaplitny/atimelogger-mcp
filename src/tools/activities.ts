@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { api } from "../client.js";
 import { resolveTypeById, resolveTypeName, typeNameById, type ActivityTypeDto } from "../types-cache.js";
 import { effectiveTimezone } from "../timezone.js";
+import { defaultContext, type Ctx } from "../context.js";
 import { wallTimeToUtc, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
 import { textResult, withErrors } from "../errors.js";
@@ -31,8 +32,11 @@ interface ActivitiesDto {
   activities: ActivityDto[];
 }
 
-export async function currentStatus(tz: string): Promise<unknown> {
-  const [data, names] = await Promise.all([api.get<ActivitiesDto>("/api/activities"), typeNameById()]);
+export async function currentStatus(tz: string, ctx: Ctx = defaultContext()): Promise<unknown> {
+  const [data, names] = await Promise.all([
+    ctx.api.get<ActivitiesDto>("/api/activities"),
+    ctx.types.typeNameById(),
+  ]);
   const active = (data.activities ?? []).filter((a) => a.status === "RUNNING" || a.status === "PAUSED");
   const now = unixToLocal(Date.now() / 1000, tz);
   if (active.length === 0) return { status: "idle", now, timezone: tz, message: "No running or paused activities." };

@@ -1,8 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { api } from "../client.js";
-import { resolveTypeNames, typeNameById } from "../types-cache.js";
-import { effectiveTimezone } from "../timezone.js";
+import { defaultContext, type Ctx } from "../context.js";
 import { PERIOD_WORDS, resolveRange, rangeDays, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
@@ -87,15 +85,18 @@ export interface ReportArgs {
   timezone?: string;
 }
 
-export async function timeReport(args: ReportArgs & { group_by?: "DAY" | "WEEK" | "MONTH" }): Promise<unknown> {
-  const tz = await effectiveTimezone(args.timezone);
+export async function timeReport(
+  args: ReportArgs & { group_by?: "DAY" | "WEEK" | "MONTH" },
+  ctx: Ctx = defaultContext()
+): Promise<unknown> {
+  const tz = await ctx.timezone.effectiveTimezone(args.timezone);
   const range = resolveRange(args, tz);
   const [resolved, names] = await Promise.all([
-    resolveTypeNames(args.type_names, { allowGroups: true }),
-    typeNameById(),
+    ctx.types.resolveTypeNames(args.type_names, { allowGroups: true }),
+    ctx.types.typeNameById(),
   ]);
   const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
-  const stats = await api.post<StatisticsDto>("/api/statistics", {
+  const stats = await ctx.api.post<StatisticsDto>("/api/statistics", {
     types: types.length > 0 ? types : undefined,
     tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
     from: range.from,
@@ -114,18 +115,21 @@ export async function timeReport(args: ReportArgs & { group_by?: "DAY" | "WEEK" 
   });
 }
 
-export async function listIntervals(args: ReportArgs & { page?: number; size?: number }): Promise<unknown> {
-  const tz = await effectiveTimezone(args.timezone);
+export async function listIntervals(
+  args: ReportArgs & { page?: number; size?: number },
+  ctx: Ctx = defaultContext()
+): Promise<unknown> {
+  const tz = await ctx.timezone.effectiveTimezone(args.timezone);
   const range = resolveRange(args, tz);
   if (rangeDays(range) > 100) {
     throw new UsageError("Date range too large — the history API allows at most 100 days per request.");
   }
   const [resolved, names] = await Promise.all([
-    resolveTypeNames(args.type_names, { allowGroups: true }),
-    typeNameById(),
+    ctx.types.resolveTypeNames(args.type_names, { allowGroups: true }),
+    ctx.types.typeNameById(),
   ]);
   const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
-  const result = await api.post<PageDto<DayHistory>>(
+  const result = await ctx.api.post<PageDto<DayHistory>>(
     `/api/intervals?page=${args.page ?? 0}&size=${args.size ?? 20}`,
     {
       types: types.length > 0 ? types : undefined,

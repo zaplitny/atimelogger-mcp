@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `atimelogger-cli`: minimal read-only JSON CLI installed alongside the MCP server, for scripts and automation ([#3](https://github.com/zaplitny/atimelogger-mcp/issues/3)). Commands `status`, `types`, `report`, `intervals`; JSON on stdout (`--compact` for one line), `{"error"}` on stderr with exit codes 1/2. Reuses the MCP tools' internals (fuzzy type names, period words, timezones); deliberately excludes write operations.
+- Experimental library entry point: `import { createClient } from "atimelogger-mcp"` exposes the task-shaped core for embedders who want in-process calls rather than a spawned binary ([#3](https://github.com/zaplitny/atimelogger-mcp/issues/3)). `createApi`/`createClient` take an explicit token, base URL, and optional `fetch` override; each client owns its caches, so multiple accounts and fixture-backed tests work in one process. `clientFromEnv()` covers the single-account case, reading `ATL_TOKEN` and `ATL_BASE_URL` together and throwing (never exiting) when the token is missing. Importing the package no longer reads the environment.
+
+### Changed
+
+- `client.ts`, `types-cache.ts`, and `timezone.ts` are now factories (`createApi`, `createTypesCache`, `createTimezone`) with environment-driven default instances built lazily; the MCP server and CLI behave exactly as before.
+
+### Fixed
+
+- The resolved profile timezone was cached for the lifetime of the process with no expiry. Harmless for the short-lived MCP server and CLI, but a long-running embedded client would serve a stale timezone (or a stale fallback after a transient API failure) until restart; it now expires after an hour.
 
 ## [0.1.2] - 2026-07-22
 
