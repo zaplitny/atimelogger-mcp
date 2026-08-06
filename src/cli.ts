@@ -10,7 +10,7 @@
  */
 import { parseArgs } from "node:util";
 import { createRequire } from "node:module";
-import { PERIOD_WORDS } from "./periods.js";
+import { PERIOD_WORDS, type PeriodWord } from "./periods.js";
 import { UsageError } from "./errors.js";
 
 const GROUP_BY = ["DAY", "WEEK", "MONTH"] as const;
@@ -113,7 +113,9 @@ async function run(): Promise<void> {
   };
 
   const range = {
-    period: values.period,
+    // Unvalidated here on purpose: resolveRange rejects unknown words with a
+    // UsageError listing the valid ones, which is a better message than ours.
+    period: values.period as PeriodWord | undefined,
     from: values.from,
     to: values.to,
     type_names: values.type,

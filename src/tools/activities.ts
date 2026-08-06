@@ -32,29 +32,78 @@ interface ActivitiesDto {
   activities: ActivityDto[];
 }
 
-export async function currentStatus(tz: string, ctx: Ctx = defaultContext()): Promise<unknown> {
+export interface ActiveActivity {
+  activity: string;
+  /** Activity id — pass to update_activity / stop_activity. */
+  id: string;
+  status: "RUNNING" | "PAUSED";
+  /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`; absent for paused timers. */
+  started?: string;
+  elapsed: string;
+  seconds: number;
+  comment?: string;
+  tags?: string[];
+}
+
+export interface CurrentStatus {
+  status: "idle" | "active";
+  /** Current wall-clock time in `timezone` — usable as a clock. */
+  now: string;
+  timezone: string;
+  /** Empty when idle. */
+  active: ActiveActivity[];
+}
+
+export async function currentStatus(tz: string, ctx: Ctx = defaultContext()): Promise<CurrentStatus> {
   const [data, names] = await Promise.all([
     ctx.api.get<ActivitiesDto>("/api/activities"),
     ctx.types.typeNameById(),
   ]);
-  const active = (data.activities ?? []).filter((a) => a.status === "RUNNING" || a.status === "PAUSED");
-  const now = unixToLocal(Date.now() / 1000, tz);
-  if (active.length === 0) return { status: "idle", now, timezone: tz, message: "No running or paused activities." };
+  const running = (data.activities ?? []).filter((a) => a.status === "RUNNING" || a.status === "PAUSED");
   return {
-    now,
+    status: running.length === 0 ? "idle" : "active",
+    now: unixToLocal(Date.now() / 1000, tz),
     timezone: tz,
-    active: active.map((a) =>
-      compact({
+    active: running.map((a) => {
+      const entry: ActiveActivity = {
         activity: names.get(a.typeId) ?? a.typeId,
         id: a.id,
-        status: a.status,
-        started: a.start ? unixToLocal(Date.parse(a.start) / 1000, tz) : undefined,
+        status: a.status as "RUNNING" | "PAUSED",
         elapsed: formatDuration(a.duration),
+        seconds: a.duration,
+      };
+      if (a.start) entry.started = unixToLocal(Date.parse(a.start) / 1000, tz);
+      if (a.comment) entry.comment = a.comment;
+      if (a.tags && a.tags.length > 0) entry.tags = a.tags;
+      return entry;
+    }),
+  };
+}
+
+/** LLM-facing shape: idle carries a sentence, active drops the redundant flag. */
+function statusForMcp(s: CurrentStatus): unknown {
+  if (s.status === "idle") {
+    return { status: "idle", now: s.now, timezone: s.timezone, message: "No running or paused activities." };
+  }
+  return {
+    now: s.now,
+    timezone: s.timezone,
+    active: s.active.map((a) =>
+      compact({
+        activity: a.activity,
+        id: a.id,
+        status: a.status,
+        started: a.started,
+        elapsed: a.elapsed,
         comment: a.comment,
         tags: a.tags,
       })
     ),
   };
+}
+
+async function mcpStatus(tz: string): Promise<unknown> {
+  return statusForMcp(await currentStatus(tz));
 }
 
 async function findActiveActivity(
@@ -148,7 +197,7 @@ export function registerActivityTools(server: McpServer): void {
     },
     withErrors(async ({ timezone }) => {
       const tz = await effectiveTimezone(timezone);
-      return textResult(await currentStatus(tz));
+      return textResult(await mcpStatus(tz));
     })
   );
 
@@ -173,7 +222,7 @@ export function registerActivityTools(server: McpServer): void {
       const type = await resolveType(type_name, type_id);
       const tz = await effectiveTimezone(timezone);
       await api.post(`/api/activities/start/${type.id}?time=${resolveTimeArg(at, started_minutes_ago, tz)}`);
-      return textResult({ started: type.name, status: await currentStatus(tz) });
+      return textResult({ started: type.name, status: await mcpStatus(tz) });
     })
   );
 

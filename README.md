@@ -121,7 +121,7 @@ atimelogger-cli report --period this_week --type work
 atimelogger-cli intervals --period yesterday --tag gym --compact | jq .
 ```
 
-Commands: `status`, `types`, `report`, `intervals` — run `atimelogger-cli --help` for all options. Output is always JSON (pretty by default, `--compact` for one line); errors go to stderr as `{"error": "..."}` with exit code 1 (2 for usage mistakes). The CLI never starts, stops, or edits anything — write operations stay in the MCP server, where a human is in the loop; scripted writes from cron are retry-prone and can corrupt your timeline.
+Commands: `status`, `types`, `report`, `intervals` — run `atimelogger-cli --help` for all options. Output is always JSON (pretty by default, `--compact` for one line) with stable keys: durations carry both a humanized string and raw `seconds`, paging is a `has_more` boolean, and empty results give `[]` rather than dropping the key — so `jq` pipelines don't break on a quiet day. Errors go to stderr as `{"error": "..."}` with exit code 1 (2 for usage mistakes, including an unresolvable `--type`). The CLI never starts, stops, or edits anything — write operations stay in the MCP server, where a human is in the loop; scripted writes from cron are retry-prone and can corrupt your timeline.
 
 ## Library use (experimental)
 
@@ -130,17 +130,19 @@ The package also exports its task-shaped core, so a long-running process can cal
 ```js
 import { createClient, clientFromEnv } from "atimelogger-mcp";
 
-const atl = createClient({ token });          // credentials passed explicitly
-// or, for the single-account case:
-const atl = clientFromEnv();                  // reads ATL_TOKEN + ATL_BASE_URL
+const atl = createClient({ token });    // credentials passed explicitly
+// …or, for the single-account case, read ATL_TOKEN + ATL_BASE_URL:
+// const atl = clientFromEnv();
 
-await atl.status();
-await atl.report({ period: "this_week", type_names: ["work"] });
-await atl.intervals({ period: "yesterday" });
+const { active } = await atl.status();
+const { duration, seconds, by_type } = await atl.report({ period: "this_week", type_names: ["work"] });
+const { days, has_more } = await atl.intervals({ period: "yesterday" });
 await atl.api.post(`/api/activities/start/${typeId}?time=0`);  // escape hatch for writes
 ```
 
 Prefer `clientFromEnv()` over hand-rolling `createClient({ token: process.env.ATL_TOKEN })` — the latter ignores `ATL_BASE_URL` and would silently target production. Unlike the MCP server and the CLI, it throws rather than exiting the host process when no token is configured.
+
+Results are fully typed (`CurrentStatus`, `TimeReport`, `IntervalsPage`, …), and every field is present unless its type marks it optional — `days`, `active` and `by_type` are empty arrays rather than missing keys, so destructuring is safe on empty results. Durations come as both a humanized string and raw `seconds`. Errors are typed too: `UsageError` (bad arguments or an unresolvable type name), `ApiError` (the server answered with a failure, carries `.status`), `NetworkError` (the request never arrived, keeps the original as `.cause`).
 
 Each client owns its own HTTP client and caches, so several accounts can coexist in one process. A `fetch` override makes fixture-backed testing straightforward, with no network access:
 

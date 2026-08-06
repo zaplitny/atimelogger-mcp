@@ -4,7 +4,7 @@ import type { ActivityTypeDto } from "../types-cache.js";
 import { defaultContext, type Ctx } from "../context.js";
 import { textResult, withErrors } from "../errors.js";
 
-interface TypeNode {
+export interface TypeNode {
   name: string;
   id: string;
   archived?: boolean;

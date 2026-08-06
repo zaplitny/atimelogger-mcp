@@ -11,6 +11,8 @@ export interface TimezoneResolver {
 /** Longer than the 60s types TTL — a profile timezone rarely changes, but a
  * long-lived embedded client must not pin it (or a fallback) forever. */
 const TTL_MS = 60 * 60_000;
+/** How soon to re-try after a lookup that never produced a profile timezone. */
+const FAIL_RETRY_MS = 60_000;
 
 function systemTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -32,7 +34,13 @@ export function createTimezone(api: Api): TimezoneResolver {
           const user = await api.get<UserDto>("/api/users/me");
           cached = { tz: user.timeZone || systemTimezone(), at: Date.now() };
         } catch {
-          cached = { tz: systemTimezone(), at: Date.now() };
+          // A failed refresh must never overwrite a timezone we already
+          // resolved: a wrong zone silently shifts day boundaries and the
+          // wall-clock times of written intervals. Keep the known-good value;
+          // only guess when we have never had one, and re-try that guess soon.
+          cached = cached
+            ? { tz: cached.tz, at: Date.now() }
+            : { tz: systemTimezone(), at: Date.now() - TTL_MS + FAIL_RETRY_MS };
         }
       }
       return cached.tz;

@@ -15,34 +15,38 @@ import { createApi, type Api, type ApiOptions, type FetchLike } from "./client.j
 import { loadConfig } from "./config.js";
 import { createContext, type Ctx } from "./context.js";
 import type { TypesCache } from "./types-cache.js";
-import { currentStatus } from "./tools/activities.js";
-import { listTypes } from "./tools/types.js";
-import { timeReport, listIntervals, type ReportArgs } from "./tools/reports.js";
+import { currentStatus, type CurrentStatus } from "./tools/activities.js";
+import { listTypes, type TypeNode } from "./tools/types.js";
+import { timeReport, listIntervals, type ReportArgs, type TimeReport, type IntervalsPage } from "./tools/reports.js";
 
 export { createApi, ApiError } from "./client.js";
 export type { Api, ApiOptions, FetchLike } from "./client.js";
-export { createContext } from "./context.js";
-export type { Ctx } from "./context.js";
 export type { ActivityTypeDto, ResolveOptions, TypesCache } from "./types-cache.js";
-export type { ReportArgs } from "./tools/reports.js";
+export type { ReportArgs, TimeReport, TypeTotal, PeriodTotal, IntervalsPage, DayEntry, IntervalEntry } from "./tools/reports.js";
+export type { CurrentStatus, ActiveActivity } from "./tools/activities.js";
+export type { TypeNode } from "./tools/types.js";
 export { PERIOD_WORDS, resolveRange, rangeDays, unixToLocal, wallTimeToUtc } from "./periods.js";
 export type { PeriodWord, DateRange } from "./periods.js";
 export { formatDuration } from "./format.js";
-export { UsageError } from "./errors.js";
+export { UsageError, NetworkError } from "./errors.js";
 
 /**
  * Read operations over one account, sharing an HTTP client and its caches.
  * Purely in-process — no daemon, no persisted state, no cross-process reuse.
+ *
+ * Every field of the returned shapes is always present unless its type marks it
+ * optional, so destructuring is safe on empty results. Durations come as both a
+ * humanized string and raw `seconds`.
  */
 export interface AtlClient {
   /** Raw authenticated HTTP client — escape hatch for endpoints not wrapped here (writes). */
   api: Api;
   /** Fuzzy type-name resolution against this account's type list. */
   typeCache: TypesCache;
-  status(timezone?: string): Promise<unknown>;
-  types(includeArchived?: boolean): Promise<unknown>;
-  report(args: ReportArgs & { group_by?: "DAY" | "WEEK" | "MONTH" }): Promise<unknown>;
-  intervals(args: ReportArgs & { page?: number; size?: number }): Promise<unknown>;
+  status(timezone?: string): Promise<CurrentStatus>;
+  types(includeArchived?: boolean): Promise<{ types: TypeNode[] }>;
+  report(args: ReportArgs & { group_by?: "DAY" | "WEEK" | "MONTH" }): Promise<TimeReport>;
+  intervals(args: ReportArgs & { page?: number; size?: number }): Promise<IntervalsPage>;
 }
 
 export function createClient(options: ApiOptions): AtlClient {

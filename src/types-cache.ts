@@ -1,4 +1,5 @@
 import { api as envApi, type Api } from "./client.js";
+import { UsageError } from "./errors.js";
 
 export interface ActivityTypeDto {
   id: string;
@@ -28,7 +29,7 @@ export interface TypesCache {
 const TTL_MS = 60_000;
 
 function ambiguous(name: string, matches: ActivityTypeDto[]): Error {
-  return new Error(
+  return new UsageError(
     `Activity type name "${name}" is ambiguous, matches: ${matches.map((t) => t.name).join(", ")}. Use a more specific name.`
   );
 }
@@ -58,7 +59,7 @@ export function createTypesCache(api: Api): TypesCache {
     if (partial.length > 1) throw ambiguous(name, partial);
 
     const names = candidates.map((t) => t.name).slice(0, 30);
-    throw new Error(
+    throw new UsageError(
       `No activity type matches "${name}". Available types: ${names.join(", ")}` +
         (opts.allowGroups ? "" : " (groups excluded — a group cannot be started directly)")
     );
@@ -75,10 +76,10 @@ export function createTypesCache(api: Api): TypesCache {
     resolveTypeById: async (id: string, opts: ResolveOptions = {}) => {
       const match = (await getTypes()).find((t) => t.id === id && !t.deleted);
       if (!match) {
-        throw new Error(`No activity type with id "${id}" — call list_activity_types for current ids.`);
+        throw new UsageError(`No activity type with id "${id}" — call list_activity_types for current ids.`);
       }
       if (!opts.allowGroups && match.group) {
-        throw new Error(`"${match.name}" is a group and cannot be started or logged directly.`);
+        throw new UsageError(`"${match.name}" is a group and cannot be started or logged directly.`);
       }
       return match;
     },

@@ -1,4 +1,5 @@
 import { loadConfig, PROD_URL } from "./config.js";
+import { NetworkError } from "./errors.js";
 
 export class ApiError extends Error {
   constructor(
@@ -46,7 +47,10 @@ export function createApi(options: ApiOptions): Api {
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
     } catch (e) {
-      throw new Error(`Cannot reach ATimeLogger at ${baseUrl} — is the server running? (${(e as Error).message})`);
+      throw new NetworkError(
+        `Cannot reach ATimeLogger at ${baseUrl} — is the server running? (${(e as Error).message})`,
+        { cause: e }
+      );
     }
     if (res.status === 401 || res.status === 403) {
       throw new ApiError(

@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-06
 
 ### Added
 
@@ -16,9 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `client.ts`, `types-cache.ts`, and `timezone.ts` are now factories (`createApi`, `createTypesCache`, `createTimezone`) with environment-driven default instances built lazily; the MCP server and CLI behave exactly as before.
 
+- Library and CLI results are fully typed and structurally stable: `CurrentStatus` is a discriminated union with an always-present `active` array, `TimeReport` and `IntervalsPage` always carry `by_type`/`periods`/`days` (empty arrays instead of missing keys), durations come with raw `seconds` beside the humanized string, and paging is a `has_more` boolean plus `total_pages`. The token-saving compaction and the LLM-oriented prose stay on the MCP side only, so tool output is unchanged. `ReportArgs.period` is now the `PeriodWord` union, so a typo fails at compile time.
+- Error taxonomy: `NetworkError` (request never reached the server, original kept as `.cause`) joins `ApiError` (server answered with a failure, carries `.status`) and `UsageError`, which now also covers unresolvable or ambiguous activity-type names — previously a bare `Error` indistinguishable from a transport failure. The CLI exits 2 for those instead of 1.
+
 ### Fixed
 
-- The resolved profile timezone was cached for the lifetime of the process with no expiry. Harmless for the short-lived MCP server and CLI, but a long-running embedded client would serve a stale timezone (or a stale fallback after a transient API failure) until restart; it now expires after an hour.
+- The resolved profile timezone was cached for the lifetime of the process with no expiry. Harmless for the short-lived MCP server and CLI, but a long-running embedded client would serve a stale timezone until restart; it now refreshes hourly. A *failed* refresh no longer overwrites a timezone that was already resolved — silently shifting day boundaries and the wall-clock times of written intervals — and a lookup that never succeeded is re-tried after a minute instead of being pinned for an hour.
+- `npm run build` cleans `dist/` first. Without it, compiled files from unmerged branches lingered and would have been published: the 0.1.2-era tarball layout picked up two orphaned modules.
+- Packaging: added the `main` field (without it, bundlers and test runners that ignore `exports` resolved the types but failed at runtime) and switched the export condition from `import` to `default`, so `require()` works on Node ≥22.12 instead of failing with a misleading "no exports main defined".
 
 ## [0.1.2] - 2026-07-22
 
@@ -53,6 +58,7 @@ First public release on npm as [`atimelogger-mcp`](https://www.npmjs.com/package
 - `npm run setup` script: verifies a pasted token and prints ready-to-use registration snippets.
 - npm packaging (`npx atimelogger-mcp`) and README guides for Claude Code, Claude Desktop, and a self-hosted remote endpoint (Custom Connector) behind Docker + nginx.
 
+[0.2.0]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zaplitny/atimelogger-mcp/releases/tag/v0.1.0
