@@ -1,5 +1,5 @@
-import { loadConfig, PROD_URL } from "./config.js";
-import { NetworkError } from "./errors.js";
+import { loadConfig, setupInstructions, PROD_URL } from "./config.js";
+import { NetworkError, UsageError } from "./errors.js";
 
 export class ApiError extends Error {
   constructor(
@@ -80,7 +80,21 @@ let envApi: Api | undefined;
 function defaultApi(): Api {
   if (!envApi) {
     const config = loadConfig();
-    envApi = createApi({ token: config.token, baseUrl: config.baseUrl });
+    if (config.token) {
+      envApi = createApi({ token: config.token, baseUrl: config.baseUrl });
+    } else {
+      // Docs-only mode: app_help answers from the public help site, so the
+      // server still starts. Everything API-backed explains what is missing
+      // rather than sending a token-less request.
+      const refuse = async (): Promise<never> => {
+        throw new UsageError(
+          "ATL_TOKEN is not set — the server is in docs-only mode, only app_help (app documentation) works. " +
+            "To use time tracking, the user needs API access (part of the Premium Sync plan).\n" +
+            setupInstructions(config.baseUrl)
+        );
+      };
+      envApi = { get: refuse, post: refuse, put: refuse, delete: refuse };
+    }
   }
   return envApi;
 }

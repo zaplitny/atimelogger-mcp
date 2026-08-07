@@ -12,7 +12,7 @@
  * ATL_BASE_URL path.
  */
 import { createApi, type Api, type ApiOptions, type FetchLike } from "./client.js";
-import { loadConfig } from "./config.js";
+import { readEnvConfig } from "./config.js";
 import { createContext, type Ctx } from "./context.js";
 import type { TypesCache } from "./types-cache.js";
 import {
@@ -124,11 +124,9 @@ export function createClient(options: ApiOptions): AtlClient {
  * never exit the host process).
  */
 export function clientFromEnv(overrides: { fetch?: FetchLike } = {}): AtlClient {
-  if (!process.env.ATL_TOKEN) {
-    throw new Error(
-      "ATL_TOKEN is not set — set it, or pass a token explicitly with createClient({ token })."
-    );
+  const config = readEnvConfig(); // throws on a botched setup; never exits, never warns
+  if (!config.token) {
+    throw new Error("ATL_TOKEN is not set — set it, or pass a token explicitly with createClient({ token }).");
   }
-  const config = loadConfig(); // resolves ATL_BASE_URL, warns if the token is not a PAT
   return createClient({ token: config.token, baseUrl: config.baseUrl, fetch: overrides.fetch });
 }

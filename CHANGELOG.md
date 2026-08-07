@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Merged `main`'s `app_help` / docs-only work into this branch's refactor: `createTypesCache` and `createTimezone` now build their caches with the shared `ttlCache` helper (one instance per client, so accounts stay isolated), and the environment-driven client keeps docs-only mode by refusing API calls with the setup guidance instead of sending a token-less request. MCP behaviour is unchanged from `main` — verified by diffing 34 tool calls, `app_help` included, plus a full docs-only run, against a build of `main`.
+- `config.ts` splits the pure parse (`readEnvConfig`, throws, silent) from the executable UX (`loadConfig`, warns and exits). `clientFromEnv()` uses the former, closing a hazard the merge introduced: `main`'s `loadConfig` exits the process on a stray `ATL_*` variable, which a library must never do to its host.
 - `tools/activities.ts` no longer touches the environment-driven singletons at all; every operation takes a context. This closes a latent hazard where a write reached through a library client would have targeted the `ATL_TOKEN` account instead of the client's own credentials.
 - `client.ts`, `types-cache.ts`, and `timezone.ts` are now factories (`createApi`, `createTypesCache`, `createTimezone`) with environment-driven default instances built lazily; the MCP server and CLI behave exactly as before.
 

@@ -57,7 +57,7 @@ const callJson = async (name, args) => JSON.parse((await call(name, args)).text)
 test("registers exactly the documented tool set", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "get_current_status", "list_activity_types", "list_intervals", "log_interval",
+    "app_help", "get_current_status", "list_activity_types", "list_intervals", "log_interval",
     "pause_resume_activity", "start_activity", "stop_activity", "time_report", "update_activity",
   ]);
   for (const t of tools) {
@@ -111,6 +111,38 @@ test("failures come back as isError text, never as a thrown protocol error", asy
     const r = await call(name, args);
     assert.ok(r.isError, `${name} ${JSON.stringify(args)} should be an error`);
     assert.match(r.text, pattern);
+  }
+});
+
+test("docs-only mode: the server still starts and app_help answers, API tools explain what is missing", async () => {
+  const docs = createServer((req, res) => {
+    if (req.url.endsWith(".md")) { res.setHeader("content-type", "text/markdown"); res.end("# Goals\n\nSet a target."); return; }
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ note: "platforms differ", pages: [{ slug: "goals", title: "Goals", summary: "targets" }] }));
+  });
+  await new Promise((r) => docs.listen(0, "127.0.0.1", r));
+  const url = `http://127.0.0.1:${docs.address().port}`;
+  const bare = new Client({ name: "docs-only", version: "0" });
+  await bare.connect(new StdioClientTransport({
+    command: process.execPath, args: [SERVER],
+    env: { PATH: process.env.PATH, TZ: "UTC", ATL_DOCS_URL: url, ATL_BASE_URL: url }, // deliberately no ATL_TOKEN
+  }));
+  try {
+    const toc = await bare.callTool({ name: "app_help", arguments: {} });
+    assert.ok(!toc.isError, "app_help must work unauthenticated");
+    assert.match(toc.content[0].text, /help_topics/);
+
+    const page = await bare.callTool({ name: "app_help", arguments: { topics: ["goals"] } });
+    assert.match(page.content[0].text, /Set a target/);
+
+    for (const name of ["get_current_status", "time_report", "start_activity"]) {
+      const r = await bare.callTool({ name, arguments: name === "time_report" ? { period: "today" } : { type_name: "x" } });
+      assert.ok(r.isError, `${name} must fail without a token`);
+      assert.match(r.content[0].text, /docs-only mode/, `${name} should explain the mode, not leak a raw 401`);
+    }
+  } finally {
+    await bare.close();
+    docs.close();
   }
 });
 

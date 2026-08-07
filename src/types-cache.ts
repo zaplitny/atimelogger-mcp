@@ -1,5 +1,6 @@
 import { api as envApi, type Api } from "./client.js";
 import { UsageError } from "./errors.js";
+import { ttlCache } from "./ttl-cache.js";
 
 export interface ActivityTypeDto {
   id: string;
@@ -36,14 +37,10 @@ function ambiguous(name: string, matches: ActivityTypeDto[]): Error {
 
 /** Each cache owns its own 60s snapshot, so separate clients never share state. */
 export function createTypesCache(api: Api): TypesCache {
-  let cache: { types: ActivityTypeDto[]; at: number } | null = null;
-
-  const getTypes = async (): Promise<ActivityTypeDto[]> => {
-    if (!cache || Date.now() - cache.at > TTL_MS) {
-      cache = { types: await api.get<ActivityTypeDto[]>("/api/types"), at: Date.now() };
-    }
-    return cache.types;
-  };
+  // Deliberately no staleOnError: type ids drive filtering and writes, so an
+  // auth or API failure must surface rather than be papered over with a
+  // snapshot that may no longer be true.
+  const getTypes = ttlCache(TTL_MS, () => api.get<ActivityTypeDto[]>("/api/types"));
 
   const resolveTypeName = async (name: string, opts: ResolveOptions = {}): Promise<ActivityTypeDto> => {
     const all = (await getTypes()).filter((t) => !t.deleted && !t.archived);
