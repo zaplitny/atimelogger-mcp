@@ -107,6 +107,10 @@ Things you can say to your assistant once the server is registered:
 
 > "Where did my week go?" · "How much did I work in June, broken down by week?" · "Compare my sleep this month vs last month" · "Show everything I tracked today" · "Which day last week had the most Development time?"
 
+**Learning the app** — answered from the official documentation rather than guesswork:
+
+> "How do goals work?" · "Why isn't my sync picking up yesterday's entries?" · "What's the difference between a group and a type?" · "Can I export to CSV?" · "How do I edit an entry's times?"
+
 **Combinations** — the assistant chains tools on its own:
 
 > "Stop whatever is running and start Work" · "Continue from where the last entry ended — start Development from that time" · "Fill yesterday's gap between lunch and the meeting with Reading"
@@ -163,6 +167,8 @@ Each client owns its own HTTP client and caches, so several accounts can coexist
 ```js
 const atl = createClient({ token: "test", baseUrl: "https://example.test", fetch: fakeFetch });
 ```
+
+`app_help` is not part of this surface — it answers from the public documentation site rather than the account, so it stays an MCP tool.
 
 These clients are purely in-process — no daemon, no persisted state, nothing shared between invocations; keep the process alive to keep the caches warm. Importing the library never reads the environment. **Experimental while the package is 0.x**: signatures may change in a minor release, so pin an exact version if you depend on them.
 
