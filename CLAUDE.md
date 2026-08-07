@@ -33,7 +33,9 @@ Node 20+, ESM, zero runtime deps beyond `@modelcontextprotocol/sdk` and `zod`.
 - `src/periods.ts` — period words (`today`…`last_30_days`) → date ranges; DST-correct wall-clock↔UTC conversion; Monday-start weeks; zero-dep (Intl)
 - `src/format.ts` — duration formatting ("2h 15m"), `compact()` null-stripping
 - `src/errors.ts` — `withErrors()` wrapper: tool handlers never throw, return `isError`
-- `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas)
+- `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas) plus the transport-independent operations behind them (`currentStatus`, `listTypes`, `timeReport`, `listIntervals`, `startActivity`, `stopActivity`, `pauseResumeActivity`, `logInterval`, `updateActivity`), each taking an optional trailing `Ctx`. MCP-only presentation (token-saving `compact()`, LLM-oriented prose) lives in per-file `*ForMcp` mappers, so library and CLI consumers get stable typed shapes while tool output is unchanged.
+- `src/core.ts` — public library entry (`createClient`, `clientFromEnv`, `createApi`); `src/context.ts` — `Ctx` bundling api + per-client caches, with a lazily-built env-driven default so importing the package never reads env or exits
+- `test/` — `node --test` suite over a mock backend (`test/helpers.mjs` builds a `Ctx` from a route map); includes end-to-end runs of both binaries
 - `scripts/setup.ts` — prompts for a pasted PAT, verifies it against `/api/users/me`, prints the ready `claude mcp add` command
 
 Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUIDs for machines: tools accept human type **names** (fuzzy resolved) and outputs carry internal `id` fields that tools also accept back (`type_id`, `activity_id`, `type_ids`) for exact targeting between calls — the server instructions tell the LLM to never show ids to the user. Responses are compact JSON with resolved names and humanized durations.

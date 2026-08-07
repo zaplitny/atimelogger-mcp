@@ -128,6 +128,42 @@ test("an unreachable backend is a runtime failure: exit 1", async () => {
   assert.match(json(r.stderr).error, /Cannot reach ATimeLogger/);
 });
 
+test("doctor reports a healthy setup and exits 0", async () => {
+  const r = await run(["doctor", "--compact"]);
+  assert.equal(r.code, 0);
+  const out = json(r.stdout);
+  assert.equal(out.ok, true);
+  assert.equal(out.base_url, baseUrl);
+  assert.deepEqual(out.checks.map((c) => c.name), ["token", "connection", "auth", "types"]);
+  assert.ok(out.checks.every((c) => c.ok));
+  assert.match(out.checks.find((c) => c.name === "types").detail, /3 activity type\(s\)/);
+});
+
+test("doctor diagnoses a missing token without demanding one first", async () => {
+  const r = await run(["doctor", "--compact"], { ATL_TOKEN: "" });
+  assert.equal(r.code, 1, "unhealthy is exit 1, not the usage-error 2");
+  const out = json(r.stdout);
+  assert.equal(out.ok, false);
+  assert.deepEqual(out.checks.map((c) => c.name), ["token"]);
+  assert.match(out.checks[0].detail, /ATL_TOKEN is not set/);
+});
+
+test("doctor separates an unreachable host from a rejected token", async () => {
+  const down = json((await run(["doctor", "--compact"], { ATL_BASE_URL: "http://127.0.0.1:1" })).stdout);
+  assert.equal(down.ok, false);
+  const conn = down.checks.find((c) => c.name === "connection");
+  assert.equal(conn.ok, false);
+  assert.match(conn.detail, /cannot reach/);
+  assert.equal(down.checks.find((c) => c.name === "auth"), undefined, "no auth verdict when we never connected");
+});
+
+test("doctor never echoes the token", async () => {
+  const secret = "atl_pat_SUPERSECRETVALUE";
+  const r = await run(["doctor", "--compact"], { ATL_TOKEN: secret });
+  assert.ok(!r.stdout.includes(secret) && !r.stderr.includes(secret));
+  assert.match(json(r.stdout).checks[0].detail, /24 chars/, "length only");
+});
+
 test("the CLI exposes no write commands", async () => {
   for (const cmd of ["start", "stop", "log", "update", "pause"]) {
     const r = await run([cmd]);

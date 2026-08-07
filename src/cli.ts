@@ -24,6 +24,7 @@ Commands:
   types                      Activity types as a tree (--archived to include archived)
   report                     Aggregated per-type statistics for a range
   intervals                  Raw history grouped by day for a range (max 100 days)
+  doctor                     Check token, connectivity and account setup (exit 1 if unhealthy)
 
 Range options (report, intervals):
   --period <word>            One of: ${PERIOD_WORDS.join(", ")}
@@ -51,6 +52,96 @@ anything — use the MCP server for interactive tracking.
 
 function fail(message: string, code: 1 | 2 = 1): never {
   throw code === 2 ? new UsageError(message) : new Error(message);
+}
+
+interface Check {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * Diagnose a setup without making the caller guess which layer broke: is the
+ * token present and shaped right, is the host reachable, does the token still
+ * authenticate, and does the account have usable data. Reports rather than
+ * throws — a diagnostic that dies on the first problem is not a diagnostic.
+ * Never prints the token.
+ */
+async function doctor(): Promise<{ ok: boolean; base_url: string; node: string; version: string; checks: Check[] }> {
+  const [{ PROD_URL, PAT_PREFIX }, { createApi }, { ApiError }, { NetworkError }] = await Promise.all([
+    import("./config.js"),
+    import("./client.js"),
+    import("./client.js"),
+    import("./errors.js"),
+  ]);
+  const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+  const baseUrl = (process.env.ATL_BASE_URL ?? PROD_URL).replace(/\/+$/, "");
+  const token = process.env.ATL_TOKEN;
+  const checks: Check[] = [];
+
+  if (!token) {
+    checks.push({
+      name: "token",
+      ok: false,
+      detail: "ATL_TOKEN is not set — generate one in the web app under Settings -> API Tokens, then export it.",
+    });
+  } else if (!token.startsWith(PAT_PREFIX)) {
+    checks.push({
+      name: "token",
+      ok: true,
+      detail: `set (${token.length} chars) but not an ${PAT_PREFIX} token — legacy tokens still work, though they cannot be revoked.`,
+    });
+  } else {
+    checks.push({ name: "token", ok: true, detail: `personal access token, ${token.length} chars.` });
+  }
+
+  const describe = (e: unknown): Check => {
+    if (e instanceof NetworkError) {
+      return { name: "connection", ok: false, detail: `cannot reach ${baseUrl} — ${(e.cause as Error)?.message ?? e.message}` };
+    }
+    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+      return { name: "auth", ok: false, detail: `${baseUrl} rejected the token (HTTP ${e.status}) — it may be expired or revoked.` };
+    }
+    if (e instanceof ApiError) {
+      return { name: "auth", ok: false, detail: `${baseUrl} returned HTTP ${e.status}.` };
+    }
+    return { name: "auth", ok: false, detail: (e as Error).message };
+  };
+
+  if (token) {
+    const api = createApi({ token, baseUrl });
+    try {
+      const me = await api.get<{ timeZone?: string }>("/api/users/me");
+      checks.push({ name: "connection", ok: true, detail: `reached ${baseUrl}.` });
+      checks.push({
+        name: "auth",
+        ok: true,
+        detail: me.timeZone
+          ? `token accepted; account timezone ${me.timeZone}.`
+          : "token accepted; account has no timezone set, so this machine's is used.",
+      });
+    } catch (e) {
+      checks.push(describe(e));
+    }
+
+    if (checks.every((c) => c.ok)) {
+      try {
+        const types = await api.get<{ deleted: boolean; archived: boolean; group: boolean }[]>("/api/types");
+        const usable = types.filter((t) => !t.deleted && !t.archived && !t.group).length;
+        checks.push({
+          name: "types",
+          ok: usable > 0,
+          detail: usable > 0
+            ? `${usable} activity type(s) available to track.`
+            : "no trackable activity types — create one in the app before logging time.",
+        });
+      } catch (e) {
+        checks.push({ ...describe(e), name: "types" });
+      }
+    }
+  }
+
+  return { ok: checks.every((c) => c.ok), base_url: baseUrl, node: process.version, version, checks };
 }
 
 async function run(): Promise<void> {
@@ -92,8 +183,14 @@ async function run(): Promise<void> {
   if (!command) {
     fail("No command given — run atimelogger-cli --help for usage.", 2);
   }
-  if (!["status", "types", "report", "intervals"].includes(command)) {
+  if (!["status", "types", "report", "intervals", "doctor"].includes(command)) {
     fail(`Unknown command "${command}" — run atimelogger-cli --help for usage.`, 2);
+  }
+  if (command === "doctor") {
+    const report = await doctor();
+    process.stdout.write(JSON.stringify(report, null, values.compact ? undefined : 2) + "\n");
+    if (!report.ok) process.exitCode = 1;
+    return;
   }
   if (!process.env.ATL_TOKEN) {
     fail(

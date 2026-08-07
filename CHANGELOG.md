@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `atimelogger-cli doctor`: a read-only setup diagnostic that separates a missing token from an unreachable host from a rejected one, reports the resolved base URL and account timezone, exits 1 when unhealthy, and never echoes the token.
 - First test suite: 80 `node --test` tests over the pure helpers (duration formatting, DST-correct period math), the API client and type cache, every read and write operation against a mock backend, plus end-to-end runs of both binaries — the CLI's exit-code and JSON contract, and the MCP server driven over stdio. `npm test` builds first and needs no network or token.
 
 - `atimelogger-cli`: minimal read-only JSON CLI installed alongside the MCP server, for scripts and automation ([#3](https://github.com/zaplitny/atimelogger-mcp/issues/3)). Commands `status`, `types`, `report`, `intervals`; JSON on stdout (`--compact` for one line), `{"error"}` on stderr with exit codes 1/2. Reuses the MCP tools' internals (fuzzy type names, period words, timezones); deliberately excludes write operations.
