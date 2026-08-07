@@ -97,7 +97,7 @@ export function wallTimeToUtc(input: string, tz: string): Date {
   let s = input.trim().replace(" ", "T");
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) s += ":00";
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) {
-    throw new Error(`Invalid datetime "${input}" — use "yyyy-MM-dd HH:mm" (interpreted in the user's timezone).`);
+    throw new UsageError(`Invalid datetime "${input}" — use "yyyy-MM-dd HH:mm" (interpreted in the user's timezone).`);
   }
   const target = Date.parse(`${s}Z`);
   let guess = target;

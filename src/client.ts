@@ -1,4 +1,4 @@
-import { loadConfig, setupInstructions, PROD_URL } from "./config.js";
+import { loadConfig, setupInstructions, normalizeBaseUrl } from "./config.js";
 import { NetworkError, UsageError } from "./errors.js";
 
 export class ApiError extends Error {
@@ -31,7 +31,7 @@ export interface Api {
 
 /** Build an API client from an explicit token/base URL — never touches the environment. */
 export function createApi(options: ApiOptions): Api {
-  const baseUrl = (options.baseUrl ?? PROD_URL).replace(/\/+$/, "");
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
   const doFetch: FetchLike = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
 
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {

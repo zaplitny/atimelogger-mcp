@@ -68,14 +68,14 @@ interface Check {
  * Never prints the token.
  */
 async function doctor(): Promise<{ ok: boolean; base_url: string; node: string; version: string; checks: Check[] }> {
-  const [{ PROD_URL, PAT_PREFIX }, { createApi }, { ApiError }, { NetworkError }] = await Promise.all([
+  const [{ normalizeBaseUrl, PAT_PREFIX }, { createApi }, { ApiError }, { NetworkError }] = await Promise.all([
     import("./config.js"),
     import("./client.js"),
     import("./client.js"),
     import("./errors.js"),
   ]);
   const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
-  const baseUrl = (process.env.ATL_BASE_URL ?? PROD_URL).replace(/\/+$/, "");
+  const baseUrl = normalizeBaseUrl(process.env.ATL_BASE_URL);
   const token = process.env.ATL_TOKEN;
   const checks: Check[] = [];
 

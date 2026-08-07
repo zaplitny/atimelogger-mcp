@@ -75,9 +75,10 @@ test("wallTimeToUtc accepts both separators and optional seconds", () => {
   assert.equal(wallTimeToUtc("2026-06-01 12:00:00", TZ).toISOString(), expected);
 });
 
-test("wallTimeToUtc rejects malformed input", () => {
-  assert.throws(() => wallTimeToUtc("June 1st", TZ), /Invalid datetime/);
-  assert.throws(() => wallTimeToUtc("2026-06-01", TZ), /Invalid datetime/);
+test("wallTimeToUtc rejects malformed input with a UsageError", () => {
+  // A bad datetime is a caller mistake, not a runtime fault — embedders branch on this.
+  assert.throws(() => wallTimeToUtc("June 1st", TZ), (e) => e instanceof UsageError && /Invalid datetime/.test(e.message));
+  assert.throws(() => wallTimeToUtc("2026-06-01", TZ), UsageError);
 });
 
 test("unixToLocal round-trips wall time in the same zone", () => {

@@ -12,6 +12,11 @@ export const DOCS_URL = "https://atimelogger.pro/docs/";
 
 const KNOWN_ENV = new Set(["ATL_TOKEN", "ATL_BASE_URL", "ATL_DOCS_URL"]);
 
+/** The one base-URL rule: default to production, strip trailing slashes. */
+export function normalizeBaseUrl(raw: string | undefined): string {
+  return (raw ?? PROD_URL).replace(/\/+$/, "");
+}
+
 export function setupInstructions(baseUrl: string): string {
   const baseUrlArg = baseUrl === PROD_URL ? "" : `-e ATL_BASE_URL=${baseUrl} `;
   return (
@@ -34,7 +39,7 @@ export function setupInstructions(baseUrl: string): string {
  * layers the executable-facing UX on top.
  */
 export function readEnvConfig(): Config {
-  const baseUrl = (process.env.ATL_BASE_URL ?? PROD_URL).replace(/\/+$/, "");
+  const baseUrl = normalizeBaseUrl(process.env.ATL_BASE_URL);
   const docsUrl = (process.env.ATL_DOCS_URL ?? DOCS_URL).replace(/\/+$/, "") + "/";
   const token = process.env.ATL_TOKEN || null;
   if (!token) {
@@ -62,7 +67,7 @@ export function loadConfig(): Config {
   try {
     parsed = readEnvConfig();
   } catch (e) {
-    const baseUrl = (process.env.ATL_BASE_URL ?? PROD_URL).replace(/\/+$/, "");
+    const baseUrl = normalizeBaseUrl(process.env.ATL_BASE_URL);
     process.stderr.write((e as Error).message + "\n" + setupInstructions(baseUrl) + "\n");
     process.exit(1);
   }

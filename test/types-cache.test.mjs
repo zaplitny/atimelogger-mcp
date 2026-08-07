@@ -102,6 +102,14 @@ test("the type list is fetched once and reused within the TTL", async () => {
   assert.equal(calls.length, 1);
 });
 
+test("concurrent misses on a cold cache coalesce into one request", async () => {
+  const { cache, calls } = cacheOver();
+  // Fire the parallel access pattern of a real call (resolveTypeNames does
+  // Promise.all over names, alongside typeNameById) before anything resolves.
+  await Promise.all([cache.getTypes(), cache.resolveTypeName("Sleep"), cache.typeNameById()]);
+  assert.equal(calls.length, 1, "one in-flight fetch is shared, not one per caller");
+});
+
 test("the snapshot is refetched once the TTL has passed", async (t) => {
   const { cache, calls } = cacheOver();
   await cache.getTypes();

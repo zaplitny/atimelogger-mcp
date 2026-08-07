@@ -90,5 +90,3 @@ export function createTypesCache(api: Api): TypesCache {
 
 /** Cache bound to the environment-driven client (MCP server, CLI). */
 export const defaultTypesCache: TypesCache = createTypesCache(envApi);
-
-export const { getTypes, typeNameById, resolveTypeName, resolveTypeById, resolveTypeNames } = defaultTypesCache;

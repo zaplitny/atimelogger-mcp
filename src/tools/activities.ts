@@ -110,7 +110,7 @@ async function findActiveActivity(
   statuses: string[],
   activityId: string | undefined,
   ctx: Ctx
-): Promise<ActivityDto> {
+): Promise<{ activity: ActivityDto; names: Map<string, string> }> {
   const [data, names] = await Promise.all([
     ctx.api.get<ActivitiesDto>("/api/activities"),
     ctx.types.typeNameById(),
@@ -121,7 +121,7 @@ async function findActiveActivity(
   }
   if (activityId) {
     const byId = candidates.find((a) => a.id === activityId);
-    if (byId) return byId;
+    if (byId) return { activity: byId, names };
     throw new UsageError(
       `No ${statuses.join("/").toLowerCase()} activity with that id. Active: ${candidates
         .map((a) => `${names.get(a.typeId) ?? a.typeId} (${a.status}, id ${a.id})`)
@@ -129,7 +129,7 @@ async function findActiveActivity(
     );
   }
   if (!typeName) {
-    if (candidates.length === 1) return candidates[0];
+    if (candidates.length === 1) return { activity: candidates[0], names };
     throw new UsageError(
       `Multiple activities are active, specify type_name. Active: ${candidates
         .map((a) => `${names.get(a.typeId) ?? a.typeId} (${a.status})`)
@@ -138,7 +138,7 @@ async function findActiveActivity(
   }
   const needle = typeName.trim().toLowerCase();
   const matched = candidates.filter((a) => (names.get(a.typeId) ?? "").toLowerCase().includes(needle));
-  if (matched.length === 1) return matched[0];
+  if (matched.length === 1) return { activity: matched[0], names };
   if (matched.length === 0) {
     throw new UsageError(
       `No active activity matches "${typeName}". Active: ${candidates
@@ -248,19 +248,23 @@ export interface StoppedActivity {
 }
 
 export async function stopActivity(args: StopArgs = {}, ctx: Ctx = defaultContext()): Promise<StoppedActivity> {
-  const activity = await findActiveActivity(args.type_name, ["RUNNING", "PAUSED"], args.activity_id, ctx);
-  const [names, tz] = await Promise.all([
-    ctx.types.typeNameById(),
+  const [{ activity, names }, tz] = await Promise.all([
+    findActiveActivity(args.type_name, ["RUNNING", "PAUSED"], args.activity_id, ctx),
     ctx.timezone.effectiveTimezone(args.timezone),
   ]);
-  await ctx.api.post(
+  // The stop endpoint returns the finalized ActivityDto; its duration is
+  // recomputed server-side from the (possibly backdated) finish, so prefer it
+  // over the pre-stop snapshot, which would overstate a backdated stop. Fall
+  // back to the snapshot only if the response is empty.
+  const stopped = await ctx.api.post<ActivityDto>(
     `/api/activities/stop/${activity.id}?time=${resolveTimeArg(args.at, args.stopped_minutes_ago, tz)}`
   );
+  const seconds = stopped?.duration ?? activity.duration;
   return {
     activity: names.get(activity.typeId) ?? activity.typeId,
     activity_id: activity.id,
-    tracked: formatDuration(activity.duration),
-    seconds: activity.duration,
+    tracked: formatDuration(seconds),
+    seconds,
   };
 }
 
@@ -281,8 +285,7 @@ export async function pauseResumeActivity(
   ctx: Ctx = defaultContext()
 ): Promise<PauseResumeResult> {
   const statuses = args.action === "pause" ? ["RUNNING"] : ["PAUSED"];
-  const activity = await findActiveActivity(args.type_name, statuses, args.activity_id, ctx);
-  const names = await ctx.types.typeNameById();
+  const { activity, names } = await findActiveActivity(args.type_name, statuses, args.activity_id, ctx);
   await ctx.api.post(`/api/activities/${args.action}/${activity.id}?time=0`);
   return {
     activity: names.get(activity.typeId) ?? activity.typeId,

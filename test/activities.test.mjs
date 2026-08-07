@@ -71,6 +71,21 @@ test("stopActivity needs no name when exactly one activity is active", async () 
   assert.ok(calls.some((c) => c.path === "/api/activities/stop/a1"));
 });
 
+test("stopActivity reports the server's post-stop duration, not the pre-stop snapshot", async () => {
+  // Backdated stop: the running snapshot shows 2h elapsed, but the finalized
+  // activity the stop endpoint returns records only 1h. The overstated snapshot
+  // must not leak into `tracked`/`seconds`.
+  const { ctx, calls } = mockCtx({
+    "/api/activities": { activities: [{ ...RUNNING, duration: 7200 }] },
+    "POST /api/activities/stop/a1": { id: "a1", typeId: "t1", status: "STOPPED", duration: 3600 },
+  });
+  const r = await stopActivity({ stopped_minutes_ago: 60, timezone: "UTC" }, ctx);
+  assert.equal(r.seconds, 3600, "uses the recomputed duration from the stop response");
+  assert.equal(r.tracked, "1h");
+  const stop = calls.find((c) => c.path === "/api/activities/stop/a1");
+  assert.ok(stop.search.startsWith("?time="), "the backdated finish is sent to the server");
+});
+
 test("stopActivity demands a name when several are active, and names them", async () => {
   const { ctx } = mockCtx({ "/api/activities": { activities: [RUNNING, PAUSED] } });
   await assert.rejects(stopActivity({}, ctx), (e) => {
