@@ -134,15 +134,26 @@ const atl = createClient({ token });    // credentials passed explicitly
 // …or, for the single-account case, read ATL_TOKEN + ATL_BASE_URL:
 // const atl = clientFromEnv();
 
+// reads
 const { active } = await atl.status();
 const { duration, seconds, by_type } = await atl.report({ period: "this_week", type_names: ["work"] });
 const { days, has_more } = await atl.intervals({ period: "yesterday" });
-await atl.api.post(`/api/activities/start/${typeId}?time=0`);  // escape hatch for writes
+
+// writes
+await atl.start({ type_name: "development", started_minutes_ago: 10 });
+await atl.stop();                                   // name optional if one is active
+await atl.pauseResume({ action: "pause" });
+await atl.log({ type_name: "reading", from: "2026-08-05 21:00", to: "2026-08-05 22:30" });
+await atl.update({ activity_id, comment: "architecture sync" });
+
+await atl.api.get("/api/…");                        // escape hatch for anything unwrapped
 ```
 
 Prefer `clientFromEnv()` over hand-rolling `createClient({ token: process.env.ATL_TOKEN })` — the latter ignores `ATL_BASE_URL` and would silently target production. Unlike the MCP server and the CLI, it throws rather than exiting the host process when no token is configured.
 
-Results are fully typed (`CurrentStatus`, `TimeReport`, `IntervalsPage`, …), and every field is present unless its type marks it optional — `days`, `active` and `by_type` are empty arrays rather than missing keys, so destructuring is safe on empty results. Durations come as both a humanized string and raw `seconds`. Errors are typed too: `UsageError` (bad arguments or an unresolvable type name), `ApiError` (the server answered with a failure, carries `.status`), `NetworkError` (the request never arrived, keeps the original as `.cause`).
+Writes are part of the client rather than something you assemble against `api`, because the sequencing matters: `update` does a read-modify-write, since a raw `PUT` soft-deletes every interval missing from the payload and would silently destroy the entry's tracked time. (The CLI stays read-only for a different reason — unattended shell retries, not programs.)
+
+Results are fully typed (`CurrentStatus`, `TimeReport`, `IntervalsPage`, `StartedActivity`, …), and every field is present unless its type marks it optional — `days`, `active` and `by_type` are empty arrays rather than missing keys, so destructuring is safe on empty results. Durations come as both a humanized string and raw `seconds`. Errors are typed too: `UsageError` (bad arguments or an unresolvable type name), `ApiError` (the server answered with a failure, carries `.status`), `NetworkError` (the request never arrived, keeps the original as `.cause`).
 
 Each client owns its own HTTP client and caches, so several accounts can coexist in one process. A `fetch` override makes fixture-backed testing straightforward, with no network access:
 

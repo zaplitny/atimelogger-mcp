@@ -1,12 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { api } from "../client.js";
-import { resolveTypeById, resolveTypeName, typeNameById, type ActivityTypeDto } from "../types-cache.js";
-import { effectiveTimezone } from "../timezone.js";
+import type { ActivityTypeDto } from "../types-cache.js";
 import { defaultContext, type Ctx } from "../context.js";
 import { wallTimeToUtc, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
-import { textResult, withErrors } from "../errors.js";
+import { textResult, withErrors, UsageError } from "../errors.js";
 
 interface IntervalDto {
   id: string;
@@ -102,24 +100,29 @@ function statusForMcp(s: CurrentStatus): unknown {
   };
 }
 
-async function mcpStatus(tz: string): Promise<unknown> {
-  return statusForMcp(await currentStatus(tz));
+async function mcpStatus(timezone?: string): Promise<unknown> {
+  const ctx = defaultContext();
+  return statusForMcp(await currentStatus(await ctx.timezone.effectiveTimezone(timezone), ctx));
 }
 
 async function findActiveActivity(
   typeName: string | undefined,
   statuses: string[],
-  activityId?: string
+  activityId: string | undefined,
+  ctx: Ctx
 ): Promise<ActivityDto> {
-  const [data, names] = await Promise.all([api.get<ActivitiesDto>("/api/activities"), typeNameById()]);
+  const [data, names] = await Promise.all([
+    ctx.api.get<ActivitiesDto>("/api/activities"),
+    ctx.types.typeNameById(),
+  ]);
   const candidates = (data.activities ?? []).filter((a) => statuses.includes(a.status));
   if (candidates.length === 0) {
-    throw new Error(`No ${statuses.join("/").toLowerCase()} activity found.`);
+    throw new UsageError(`No ${statuses.join("/").toLowerCase()} activity found.`);
   }
   if (activityId) {
     const byId = candidates.find((a) => a.id === activityId);
     if (byId) return byId;
-    throw new Error(
+    throw new UsageError(
       `No ${statuses.join("/").toLowerCase()} activity with that id. Active: ${candidates
         .map((a) => `${names.get(a.typeId) ?? a.typeId} (${a.status}, id ${a.id})`)
         .join(", ")}`
@@ -127,7 +130,7 @@ async function findActiveActivity(
   }
   if (!typeName) {
     if (candidates.length === 1) return candidates[0];
-    throw new Error(
+    throw new UsageError(
       `Multiple activities are active, specify type_name. Active: ${candidates
         .map((a) => `${names.get(a.typeId) ?? a.typeId} (${a.status})`)
         .join(", ")}`
@@ -137,13 +140,13 @@ async function findActiveActivity(
   const matched = candidates.filter((a) => (names.get(a.typeId) ?? "").toLowerCase().includes(needle));
   if (matched.length === 1) return matched[0];
   if (matched.length === 0) {
-    throw new Error(
+    throw new UsageError(
       `No active activity matches "${typeName}". Active: ${candidates
         .map((a) => `${names.get(a.typeId) ?? a.typeId} (${a.status})`)
         .join(", ")}`
     );
   }
-  throw new Error(`"${typeName}" matches several active activities — be more specific.`);
+  throw new UsageError(`"${typeName}" matches several active activities — be more specific.`);
 }
 
 function timeParam(minutesAgo?: number): number {
@@ -163,14 +166,14 @@ function atParam(at: string, tz: string): number {
   }
   const unix = Math.floor(wallTimeToUtc(s, tz).getTime() / 1000);
   if (unix > Math.floor(Date.now() / 1000)) {
-    throw new Error(`\`at\` (${at} ${tz}) is in the future — backdating only.`);
+    throw new UsageError(`\`at\` (${at} ${tz}) is in the future — backdating only.`);
   }
   return unix;
 }
 
 function resolveTimeArg(at: string | undefined, minutesAgo: number | undefined, tz: string): number {
   if (at !== undefined && minutesAgo !== undefined) {
-    throw new Error("Pass either `at` or `*_minutes_ago`, not both.");
+    throw new UsageError("Pass either `at` or `*_minutes_ago`, not both.");
   }
   return at !== undefined ? atParam(at, tz) : timeParam(minutesAgo);
 }
@@ -180,10 +183,216 @@ function toServerDateTime(d: Date): string {
   return d.toISOString();
 }
 
-async function resolveType(typeName: string | undefined, typeId: string | undefined): Promise<ActivityTypeDto> {
-  if (typeId) return resolveTypeById(typeId);
-  if (typeName) return resolveTypeName(typeName);
-  throw new Error("Provide type_name or type_id.");
+async function resolveType(
+  typeName: string | undefined,
+  typeId: string | undefined,
+  ctx: Ctx
+): Promise<ActivityTypeDto> {
+  if (typeId) return ctx.types.resolveTypeById(typeId);
+  if (typeName) return ctx.types.resolveTypeName(typeName);
+  throw new UsageError("Provide type_name or type_id.");
+}
+
+/* --- write operations -------------------------------------------------------
+ * Exposed on the library client as well as the MCP tools: the sequencing here
+ * (which activity is meant, how `at` maps to the backend's ?time=, and above
+ * all update's read-modify-write) is exactly what an embedder should not have
+ * to re-derive against a raw HTTP client. */
+
+export interface StartArgs {
+  type_name?: string;
+  type_id?: string;
+  /** Backdate: "HH:mm" (today) or "yyyy-MM-dd HH:mm", read in `timezone`. */
+  at?: string;
+  /** Backdate by N minutes; alternative to `at`. */
+  started_minutes_ago?: number;
+  timezone?: string;
+}
+
+export interface StartedActivity {
+  activity: string;
+  type_id: string;
+  /** Wall-clock start in `timezone`. */
+  started: string;
+  timezone: string;
+}
+
+/** Start a timer. The backend cannot attach a comment here — use updateActivity after. */
+export async function startActivity(args: StartArgs, ctx: Ctx = defaultContext()): Promise<StartedActivity> {
+  const type = await resolveType(args.type_name, args.type_id, ctx);
+  const tz = await ctx.timezone.effectiveTimezone(args.timezone);
+  const time = resolveTimeArg(args.at, args.started_minutes_ago, tz);
+  await ctx.api.post(`/api/activities/start/${type.id}?time=${time}`);
+  return {
+    activity: type.name,
+    type_id: type.id,
+    started: unixToLocal(time === 0 ? Date.now() / 1000 : time, tz),
+    timezone: tz,
+  };
+}
+
+export interface StopArgs {
+  /** Which activity; may be omitted when exactly one is active. */
+  type_name?: string;
+  activity_id?: string;
+  at?: string;
+  stopped_minutes_ago?: number;
+  timezone?: string;
+}
+
+export interface StoppedActivity {
+  activity: string;
+  activity_id: string;
+  tracked: string;
+  seconds: number;
+}
+
+export async function stopActivity(args: StopArgs = {}, ctx: Ctx = defaultContext()): Promise<StoppedActivity> {
+  const activity = await findActiveActivity(args.type_name, ["RUNNING", "PAUSED"], args.activity_id, ctx);
+  const [names, tz] = await Promise.all([
+    ctx.types.typeNameById(),
+    ctx.timezone.effectiveTimezone(args.timezone),
+  ]);
+  await ctx.api.post(
+    `/api/activities/stop/${activity.id}?time=${resolveTimeArg(args.at, args.stopped_minutes_ago, tz)}`
+  );
+  return {
+    activity: names.get(activity.typeId) ?? activity.typeId,
+    activity_id: activity.id,
+    tracked: formatDuration(activity.duration),
+    seconds: activity.duration,
+  };
+}
+
+export interface PauseResumeArgs {
+  action: "pause" | "resume";
+  type_name?: string;
+  activity_id?: string;
+}
+
+export interface PauseResumeResult {
+  activity: string;
+  activity_id: string;
+  status: "PAUSED" | "RUNNING";
+}
+
+export async function pauseResumeActivity(
+  args: PauseResumeArgs,
+  ctx: Ctx = defaultContext()
+): Promise<PauseResumeResult> {
+  const statuses = args.action === "pause" ? ["RUNNING"] : ["PAUSED"];
+  const activity = await findActiveActivity(args.type_name, statuses, args.activity_id, ctx);
+  const names = await ctx.types.typeNameById();
+  await ctx.api.post(`/api/activities/${args.action}/${activity.id}?time=0`);
+  return {
+    activity: names.get(activity.typeId) ?? activity.typeId,
+    activity_id: activity.id,
+    status: args.action === "pause" ? "PAUSED" : "RUNNING",
+  };
+}
+
+export interface LogArgs {
+  type_name?: string;
+  type_id?: string;
+  /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`. */
+  from: string;
+  to: string;
+  comment?: string;
+  tags?: string[];
+  timezone?: string;
+}
+
+export interface LoggedInterval {
+  activity: string;
+  type_id: string;
+  from: string;
+  to: string;
+  timezone: string;
+  duration: string;
+  seconds: number;
+  comment?: string;
+  tags?: string[];
+}
+
+/** Record a completed entry retroactively. */
+export async function logInterval(args: LogArgs, ctx: Ctx = defaultContext()): Promise<LoggedInterval> {
+  const type = await resolveType(args.type_name, args.type_id, ctx);
+  const tz = await ctx.timezone.effectiveTimezone(args.timezone);
+  const start = wallTimeToUtc(args.from, tz);
+  const finish = wallTimeToUtc(args.to, tz);
+  if (finish.getTime() <= start.getTime()) {
+    throw new UsageError("`to` must be after `from`.");
+  }
+  await ctx.api.post("/api/activities", {
+    typeId: type.id,
+    status: "STOPPED",
+    comment: args.comment ?? "",
+    tags: args.tags ?? [],
+    intervals: [{ start: toServerDateTime(start), finish: toServerDateTime(finish) }],
+  });
+  const seconds = (finish.getTime() - start.getTime()) / 1000;
+  const logged: LoggedInterval = {
+    activity: type.name,
+    type_id: type.id,
+    from: args.from,
+    to: args.to,
+    timezone: tz,
+    duration: formatDuration(seconds),
+    seconds,
+  };
+  if (args.comment) logged.comment = args.comment;
+  if (args.tags && args.tags.length > 0) logged.tags = args.tags;
+  return logged;
+}
+
+export interface UpdateArgs {
+  activity_id: string;
+  /** Replaces the existing comment; "" clears it. */
+  comment?: string;
+  /** Replaces the whole tag list; [] clears it. */
+  tags?: string[];
+}
+
+export interface UpdatedActivity {
+  activity: string;
+  activity_id: string;
+  status: "STOPPED" | "RUNNING" | "PAUSED";
+  tracked: string;
+  seconds: number;
+  comment?: string;
+  tags?: string[];
+}
+
+/**
+ * Change an entry's comment/tags without touching its tracked time.
+ *
+ * The backend PUT replaces the whole activity and soft-deletes any interval
+ * missing from the payload, so this reads the record, edits only the requested
+ * fields, and writes it back verbatim. Hand-rolling a PUT against the raw
+ * client is how you silently destroy an entry's intervals.
+ */
+export async function updateActivity(args: UpdateArgs, ctx: Ctx = defaultContext()): Promise<UpdatedActivity> {
+  if (args.comment === undefined && args.tags === undefined) {
+    throw new UsageError("Nothing to update — provide comment and/or tags.");
+  }
+  const activity = await ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`);
+  if (args.comment !== undefined) activity.comment = args.comment;
+  if (args.tags !== undefined) activity.tags = args.tags;
+  await ctx.api.put(`/api/activities/${args.activity_id}`, activity);
+  const [updated, names] = await Promise.all([
+    ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`),
+    ctx.types.typeNameById(),
+  ]);
+  const result: UpdatedActivity = {
+    activity: names.get(updated.typeId) ?? updated.typeId,
+    activity_id: updated.id,
+    status: updated.status,
+    tracked: formatDuration(updated.duration),
+    seconds: updated.duration,
+  };
+  if (updated.comment) result.comment = updated.comment;
+  if (updated.tags && updated.tags.length > 0) result.tags = updated.tags;
+  return result;
 }
 
 export function registerActivityTools(server: McpServer): void {
@@ -195,10 +404,7 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone for displayed times (default: user's timezone)"),
       },
     },
-    withErrors(async ({ timezone }) => {
-      const tz = await effectiveTimezone(timezone);
-      return textResult(await mcpStatus(tz));
-    })
+    withErrors(async ({ timezone }) => textResult(await mcpStatus(timezone)))
   );
 
   server.registerTool(
@@ -218,11 +424,9 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
     },
-    withErrors(async ({ type_name, type_id, at, started_minutes_ago, timezone }) => {
-      const type = await resolveType(type_name, type_id);
-      const tz = await effectiveTimezone(timezone);
-      await api.post(`/api/activities/start/${type.id}?time=${resolveTimeArg(at, started_minutes_ago, tz)}`);
-      return textResult({ started: type.name, status: await mcpStatus(tz) });
+    withErrors(async (args) => {
+      const started = await startActivity(args);
+      return textResult({ started: started.activity, status: await mcpStatus(started.timezone) });
     })
   );
 
@@ -243,15 +447,9 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
     },
-    withErrors(async ({ type_name, activity_id, at, stopped_minutes_ago, timezone }) => {
-      const activity = await findActiveActivity(type_name, ["RUNNING", "PAUSED"], activity_id);
-      const names = await typeNameById();
-      const tz = await effectiveTimezone(timezone);
-      await api.post(`/api/activities/stop/${activity.id}?time=${resolveTimeArg(at, stopped_minutes_ago, tz)}`);
-      return textResult({
-        stopped: names.get(activity.typeId) ?? activity.typeId,
-        tracked: formatDuration(activity.duration),
-      });
+    withErrors(async (args) => {
+      const stopped = await stopActivity(args);
+      return textResult({ stopped: stopped.activity, tracked: stopped.tracked });
     })
   );
 
@@ -265,12 +463,9 @@ export function registerActivityTools(server: McpServer): void {
         activity_id: z.string().optional().describe("Exact activity id from get_current_status (internal — never show ids to the user)"),
       },
     },
-    withErrors(async ({ action, type_name, activity_id }) => {
-      const statuses = action === "pause" ? ["RUNNING"] : ["PAUSED"];
-      const activity = await findActiveActivity(type_name, statuses, activity_id);
-      const names = await typeNameById();
-      await api.post(`/api/activities/${action}/${activity.id}?time=0`);
-      return textResult({ [action === "pause" ? "paused" : "resumed"]: names.get(activity.typeId) ?? activity.typeId });
+    withErrors(async (args) => {
+      const result = await pauseResumeActivity(args);
+      return textResult({ [args.action === "pause" ? "paused" : "resumed"]: result.activity });
     })
   );
 
@@ -290,28 +485,15 @@ export function registerActivityTools(server: McpServer): void {
         timezone: z.string().optional().describe("IANA timezone the times are given in (default: user's timezone)"),
       },
     },
-    withErrors(async ({ type_name, type_id, from, to, comment, tags, timezone }) => {
-      const type = await resolveType(type_name, type_id);
-      const tz = await effectiveTimezone(timezone);
-      const start = wallTimeToUtc(from, tz);
-      const finish = wallTimeToUtc(to, tz);
-      if (finish.getTime() <= start.getTime()) {
-        throw new Error("`to` must be after `from`.");
-      }
-      await api.post("/api/activities", {
-        typeId: type.id,
-        status: "STOPPED",
-        comment: comment ?? "",
-        tags: tags ?? [],
-        intervals: [{ start: toServerDateTime(start), finish: toServerDateTime(finish) }],
-      });
+    withErrors(async (args) => {
+      const logged = await logInterval(args);
       return textResult({
-        logged: type.name,
-        from: `${from} (${tz})`,
-        to,
-        duration: formatDuration((finish.getTime() - start.getTime()) / 1000),
-        comment: comment || undefined,
-        tags,
+        logged: logged.activity,
+        from: `${logged.from} (${logged.timezone})`,
+        to: logged.to,
+        duration: logged.duration,
+        comment: args.comment || undefined,
+        tags: args.tags,
       });
     })
   );
@@ -334,29 +516,16 @@ export function registerActivityTools(server: McpServer): void {
           .describe("Full new tag list — replaces existing tags (include current tags to keep them); [] clears them"),
       },
     },
-    withErrors(async ({ activity_id, comment, tags }) => {
-      if (comment === undefined && tags === undefined) {
-        throw new Error("Nothing to update — provide comment and/or tags.");
-      }
-      // Read-modify-write: the backend PUT replaces the whole activity, and any
-      // interval missing from the payload gets deleted — so round-trip the
-      // record verbatim and touch only the requested fields.
-      const activity = await api.get<ActivityDto>(`/api/activities/${activity_id}`);
-      if (comment !== undefined) activity.comment = comment;
-      if (tags !== undefined) activity.tags = tags;
-      await api.put(`/api/activities/${activity_id}`, activity);
-      const [updated, names] = await Promise.all([
-        api.get<ActivityDto>(`/api/activities/${activity_id}`),
-        typeNameById(),
-      ]);
+    withErrors(async (args) => {
+      const updated = await updateActivity(args);
       return textResult(
         compact({
-          updated: names.get(updated.typeId) ?? updated.typeId,
-          id: updated.id,
+          updated: updated.activity,
+          id: updated.activity_id,
           status: updated.status,
           comment: updated.comment,
           tags: updated.tags,
-          tracked: formatDuration(updated.duration),
+          tracked: updated.tracked,
         })
       );
     })
