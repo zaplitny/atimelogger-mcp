@@ -15,12 +15,13 @@ npm install
 npm run build        # tsc → dist/
 npm run dev          # run from source via tsx
 npm run setup        # paste a Personal Access Token, verify it, print the `claude mcp add` command
+npm test             # builds, then node --test over test/ — mock-backed, no network or token
 
 # Manual tool testing:
 ATL_BASE_URL=... ATL_TOKEN=... npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
-No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotocol/sdk` and `zod`.
+Node 20+, ESM, zero runtime deps beyond `@modelcontextprotocol/sdk` and `zod`.
 
 ## Architecture
 

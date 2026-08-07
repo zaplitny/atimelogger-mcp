@@ -43,7 +43,8 @@
     "build": "rm -rf dist && tsc",
     "dev": "tsx src/index.ts",
     "setup": "tsx scripts/setup.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test": "npm run build && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
