@@ -1,6 +1,6 @@
 {
   "name": "atimelogger-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "MCP server exposing the ATimeLogger REST API (activities, reports, types)",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,17 @@
   ],
   "mcpName": "io.github.zaplitny/atimelogger-mcp",
   "bin": {
-    "atimelogger-mcp": "dist/index.js"
+    "atimelogger-mcp": "dist/index.js",
+    "atimelogger-cli": "dist/cli.js"
+  },
+  "main": "./dist/core.js",
+  "types": "./dist/core.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -30,10 +40,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "dev": "tsx src/index.ts",
     "setup": "tsx scripts/setup.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test": "npm run build && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

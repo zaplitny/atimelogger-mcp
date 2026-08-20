@@ -1,8 +1,11 @@
 export function formatDuration(seconds: number): string {
   const s = Math.round(seconds);
   if (s < 60) return `${s}s`;
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
+  // Round to whole minutes first, then split: rounding hours and minutes
+  // separately let 59.85 minutes render as "60m" (or "52h 60m").
+  const totalMinutes = Math.round(s / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }

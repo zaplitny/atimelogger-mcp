@@ -107,11 +107,70 @@ Things you can say to your assistant once the server is registered:
 
 > "Where did my week go?" · "How much did I work in June, broken down by week?" · "Compare my sleep this month vs last month" · "Show everything I tracked today" · "Which day last week had the most Development time?"
 
+**Learning the app** — answered from the official documentation rather than guesswork:
+
+> "How do goals work?" · "Why isn't my sync picking up yesterday's entries?" · "What's the difference between a group and a type?" · "Can I export to CSV?" · "How do I edit an entry's times?"
+
 **Combinations** — the assistant chains tools on its own:
 
 > "Stop whatever is running and start Work" · "Continue from where the last entry ended — start Development from that time" · "Fill yesterday's gap between lunch and the meeting with Reading"
 
 Activity names are fuzzy-matched against your own type list, so "start dev" finds "Development"; the assistant asks when a name is ambiguous.
+
+## Read-only CLI
+
+The package also installs `atimelogger-cli` — a minimal **read-only** JSON CLI for scripts and automation (cron jobs, status bars, shell pipelines) where speaking MCP is impractical. It reuses the same internals as the MCP tools: fuzzy type names, period words, DST-correct timezones, humanized durations.
+
+```bash
+export ATL_TOKEN=atl_pat_...
+npx -y -p atimelogger-mcp atimelogger-cli status
+atimelogger-cli report --period this_week --type work
+atimelogger-cli intervals --period yesterday --tag gym --compact | jq .
+```
+
+Commands: `status`, `types`, `report`, `intervals`, plus `doctor` — run `atimelogger-cli --help` for all options. `doctor` is the first thing to run when something is off: it checks the token's presence and shape, whether the host is reachable, whether the token still authenticates, and whether the account has trackable types, telling you which layer broke instead of leaving you to guess. It exits 1 when unhealthy and never echoes the token. Output is always JSON (pretty by default, `--compact` for one line) with stable keys: durations carry both a humanized string and raw `seconds`, paging is a `has_more` boolean, and empty results give `[]` rather than dropping the key — so `jq` pipelines don't break on a quiet day. Errors go to stderr as `{"error": "..."}` with exit code 1 (2 for usage mistakes, including an unresolvable `--type`). The CLI never starts, stops, or edits anything — write operations stay in the MCP server, where a human is in the loop; scripted writes from cron are retry-prone and can corrupt your timeline.
+
+## Library use (experimental)
+
+The package also exports its task-shaped core, so a long-running process can call ATimeLogger in-process instead of spawning a binary per request — useful for daemons, bots, editor plugins, or anything that wants the conveniences (fuzzy type names, period words, DST-correct timezones, humanized durations) without the MCP transport.
+
+```js
+import { createClient, clientFromEnv } from "atimelogger-mcp";
+
+const atl = createClient({ token });    // credentials passed explicitly
+// …or, for the single-account case, read ATL_TOKEN + ATL_BASE_URL:
+// const atl = clientFromEnv();
+
+// reads
+const { active } = await atl.status();
+const { duration, seconds, by_type } = await atl.report({ period: "this_week", type_names: ["work"] });
+const { days, has_more } = await atl.intervals({ period: "yesterday" });
+
+// writes
+await atl.start({ type_name: "development", started_minutes_ago: 10 });
+await atl.stop();                                   // name optional if one is active
+await atl.pauseResume({ action: "pause" });
+await atl.log({ type_name: "reading", from: "2026-08-05 21:00", to: "2026-08-05 22:30" });
+await atl.update({ activity_id, comment: "architecture sync" });
+
+await atl.api.get("/api/…");                        // escape hatch for anything unwrapped
+```
+
+Prefer `clientFromEnv()` over hand-rolling `createClient({ token: process.env.ATL_TOKEN })` — the latter ignores `ATL_BASE_URL` and would silently target production. Unlike the MCP server and the CLI, it throws rather than exiting the host process when no token is configured.
+
+Writes are part of the client rather than something you assemble against `api`, because the sequencing matters: `update` does a read-modify-write, since a raw `PUT` soft-deletes every interval missing from the payload and would silently destroy the entry's tracked time. (The CLI stays read-only for a different reason — unattended shell retries, not programs.)
+
+Results are fully typed (`CurrentStatus`, `TimeReport`, `IntervalsPage`, `StartedActivity`, …), and every field is present unless its type marks it optional — `days`, `active` and `by_type` are empty arrays rather than missing keys, so destructuring is safe on empty results. Durations come as both a humanized string and raw `seconds`. Errors are typed too: `UsageError` (bad arguments or an unresolvable type name), `ApiError` (the server answered with a failure, carries `.status`), `NetworkError` (the request never arrived, keeps the original as `.cause`).
+
+Each client owns its own HTTP client and caches, so several accounts can coexist in one process. A `fetch` override makes fixture-backed testing straightforward, with no network access:
+
+```js
+const atl = createClient({ token: "test", baseUrl: "https://example.test", fetch: fakeFetch });
+```
+
+`app_help` is not part of this surface — it answers from the public documentation site rather than the account, so it stays an MCP tool.
+
+These clients are purely in-process — no daemon, no persisted state, nothing shared between invocations; keep the process alive to keep the caches warm. Importing the library never reads the environment. **Experimental while the package is 0.x**: signatures may change in a minor release, so pin an exact version if you depend on them.
 
 ## Remote server (Custom Connector)
 

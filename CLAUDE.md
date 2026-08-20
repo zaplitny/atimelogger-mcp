@@ -15,26 +15,29 @@ npm install
 npm run build        # tsc → dist/
 npm run dev          # run from source via tsx
 npm run setup        # paste a Personal Access Token, verify it, print the `claude mcp add` command
+npm test             # builds, then node --test over test/ — mock-backed, no network or token
 
 # Manual tool testing:
 ATL_BASE_URL=... ATL_TOKEN=... npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
-No test suite yet. Node 20+, ESM, zero runtime deps beyond `@modelcontextprotocol/sdk` and `zod`.
+Node 20+, ESM, zero runtime deps beyond `@modelcontextprotocol/sdk` and `zod`.
 
 ## Architecture
 
 - `src/index.ts` — entry: McpServer + StdioServerTransport, registers tool groups; declares server-level `instructions` (project overview + cross-tool conventions) surfaced to the LLM at initialize
-- `src/config.ts` — env (all parsing lives here; `loadConfig()` is memoized): `ATL_BASE_URL` (default `https://app.atimelogger.pro`, i.e. production), `ATL_DOCS_URL` (default `https://atimelogger.pro/docs/`), `ATL_TOKEN` (optional: absent → docs-only mode, stderr warning at startup and only `app_help` works — API tools throw setup instructions from client.ts; set-but-empty or stray unrecognized `ATL_*` vars → fail fast, that's a botched config, not docs-only intent; warns if the token isn't an `atl_pat_` token)
-- `src/client.ts` — fetch wrapper: bearer auth, error normalization (401 → regenerate-PAT guidance)
+- `src/config.ts` — env (all parsing lives here). `readEnvConfig()` is the pure parse: throws on a botched setup, never writes to stderr, never exits — the library path needs both. `loadConfig()` wraps it with the executable-facing UX (warn, exit) and memoizes. Vars: `ATL_BASE_URL` (default `https://app.atimelogger.pro`, i.e. production), `ATL_DOCS_URL` (default `https://atimelogger.pro/docs/`), `ATL_TOKEN` (optional: absent → docs-only mode, stderr warning at startup and only `app_help` works — API tools throw setup instructions from client.ts; set-but-empty or stray unrecognized `ATL_*` vars → fail fast, that's a botched config, not docs-only intent; warns if the token isn't an `atl_pat_` token)
+- `src/client.ts` — `createApi({token, baseUrl?, fetch?})` builds a client from explicit credentials (no env access); bearer auth, error normalization (401 → regenerate-PAT guidance, transport failure → `NetworkError` with `cause`). The exported `api` is a lazily-built env-driven default that, in docs-only mode, refuses every call with the setup guidance instead of sending a token-less request.
 - `src/types-cache.ts` — `/api/types` cached 60s; fuzzy type-name resolution (exact → substring; ambiguity/no-match → helpful errors). Groups excluded as start/log targets, allowed in report filters.
 - `src/timezone.ts` — default tz from `/api/users/me`, per-call override
 - `src/periods.ts` — period words (`today`…`last_30_days`) → date ranges; DST-correct wall-clock↔UTC conversion; Monday-start weeks; zero-dep (Intl)
 - `src/format.ts` — duration formatting ("2h 15m"), `compact()` null-stripping
 - `src/errors.ts` — `withErrors()` wrapper: tool handlers never throw, return `isError`
-- `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas)
-- `src/tools/docs.ts` — `app_help`: fetches the official docs site (config `docsUrl`, unauthenticated, separate host from the API). No args → TOC from `help-index.json` (slug/title/summary per page plus a platform `note`, hand-maintained in the atimelogger-docs repo alongside the markdown sources, which the docs deploy copies into `site/`); `topics` → fetches `<slug>.md` pages (fuzzy slug/title match, deduped), strips `<figure>` blocks and `&#x20;`. Non-JSON/shape-invalid manifest → the same "docs unavailable" guidance as network errors. Cached 1h with stale-on-error fallback.
-- `src/ttl-cache.ts` — shared `ttlCache`/`ttlCacheBy` helpers (single-value and keyed), opt-in `staleOnError` (used by docs.ts; deliberately NOT by types-cache.ts so API/auth errors surface)
+- `src/tools/{types,activities,reports}.ts` — tool definitions (zod schemas) plus the transport-independent operations behind them (`currentStatus`, `listTypes`, `timeReport`, `listIntervals`, `startActivity`, `stopActivity`, `pauseResumeActivity`, `logInterval`, `updateActivity`), each taking an optional trailing `Ctx`. MCP-only presentation (token-saving `compact()`, LLM-oriented prose) lives in per-file `*ForMcp` mappers, so library and CLI consumers get stable typed shapes while tool output is unchanged.
+- `src/tools/docs.ts` — `app_help`: fetches the official docs site (config `docsUrl`, unauthenticated, separate host from the API). No args → TOC from `help-index.json` (slug/title/summary per page plus a platform `note`, hand-maintained in the atimelogger-docs repo alongside the markdown sources, which the docs deploy copies into `site/`); `topics` → fetches `<slug>.md` pages (fuzzy slug/title match, deduped), strips `<figure>` blocks and `&#x20;`. Non-JSON/shape-invalid manifest → the same "docs unavailable" guidance as network errors. Cached 1h with stale-on-error fallback. Not part of the library entry — it is account-independent and reads env at import.
+- `src/ttl-cache.ts` — shared `ttlCache`/`ttlCacheBy` helpers (single-value and keyed), opt-in `staleOnError`. Used by docs.ts, and by `createTypesCache`/`createTimezone`, which build one cache instance per client so accounts stay isolated. `staleOnError` is on for timezone (a failed refresh must not clobber a resolved zone) and deliberately off for types (auth/API errors must surface).
+- `src/core.ts` — public library entry (`createClient`, `clientFromEnv`, `createApi`); `src/context.ts` — `Ctx` bundling api + per-client caches, with a lazily-built env-driven default so importing the package never reads env or exits
+- `test/` — `node --test` suite over a mock backend (`test/helpers.mjs` builds a `Ctx` from a route map); includes end-to-end runs of both binaries
 - `scripts/setup.ts` — prompts for a pasted PAT, verifies it against `/api/users/me`, prints the ready `claude mcp add` command
 
 Design rule: tools are task-shaped, not 1:1 REST mirrors. Names for humans, UUIDs for machines: tools accept human type **names** (fuzzy resolved) and outputs carry internal `id` fields that tools also accept back (`type_id`, `activity_id`, `type_ids`) for exact targeting between calls — the server instructions tell the LLM to never show ids to the user. Responses are compact JSON with resolved names and humanized durations.

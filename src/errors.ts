@@ -1,3 +1,11 @@
+/** Bad caller input (usage mistake), as opposed to a runtime/API failure. The
+ * MCP path treats it like any error; the CLI maps it to exit code 2. */
+export class UsageError extends Error {}
+
+/** The request never reached the server (DNS, refused connection, timeout).
+ * Distinct from ApiError, which means the server answered with a failure. */
+export class NetworkError extends Error {}
+
 export interface ToolResult {
   [key: string]: unknown;
   content: { type: "text"; text: string }[];
