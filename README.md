@@ -2,6 +2,8 @@
 
 A standalone MCP (Model Context Protocol) server that exposes the ATimeLogger REST API to AI assistants — locally over stdio (Claude Desktop / Claude Code / OpenAI Codex) or remotely as a connector (claude.ai in the browser, Claude mobile apps, ChatGPT). Scope: activities (start/stop/pause/log), reports/history, and activity types.
 
+The same package also installs **[`atimelogger-cli`](#command-line-interface)** — a read-only JSON CLI that needs no AI assistant at all. Use it from cron jobs, status bars, and shell pipelines; it shares the server's internals (fuzzy type names, period words, DST-correct timezones) but runs entirely on its own. A [library entry point](#library-use-experimental) covers the third case, calling ATimeLogger in-process from your own code.
+
 ## Setup
 
 Requires Node 20+.
@@ -117,9 +119,9 @@ Things you can say to your assistant once the server is registered:
 
 Activity names are fuzzy-matched against your own type list, so "start dev" finds "Development"; the assistant asks when a name is ambiguous.
 
-## Read-only CLI
+## Command-line interface
 
-The package also installs `atimelogger-cli` — a minimal **read-only** JSON CLI for scripts and automation (cron jobs, status bars, shell pipelines) where speaking MCP is impractical. It reuses the same internals as the MCP tools: fuzzy type names, period words, DST-correct timezones, humanized durations.
+`atimelogger-cli` is installed by the same package and stands on its own — no MCP client, no assistant, no API key beyond the same `ATL_TOKEN`. It is a **read-only** JSON CLI for scripts and automation (cron jobs, status bars, shell pipelines) where speaking MCP is impractical, and it reuses the internals the MCP tools are built on: fuzzy type names, period words, DST-correct timezones, humanized durations.
 
 ```bash
 export ATL_TOKEN=atl_pat_...
