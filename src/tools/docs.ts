@@ -11,6 +11,8 @@ export interface HelpPage {
   slug: string;
   title: string;
   summary: string;
+  /** Which app the page describes. Absent on older indexes. */
+  platform?: "ios" | "android";
 }
 
 export interface HelpIndex {
@@ -55,17 +57,31 @@ export const helpIndex = ttlCache(
 );
 
 // Screenshots and layout markup mean nothing over MCP — keep only the text.
-function normalize(md: string): string {
-  return md
+// `dir` is the directory part of the page's own slug ("android/" or ""):
+// cross-references inside a page are relative to it, so `sync.md` inside
+// android/pomodoro.md means android/sync. Left bare, resolveTopic() would
+// match the unprefixed slug first and silently serve the iOS page instead.
+function normalize(md: string, dir = ""): string {
+  const text = md
     .replace(/<figure>[\s\S]*?<\/figure>/g, "")
     .replace(/&#x20;/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  if (!dir) return text;
+  // skip absolute, root-relative and pure-anchor targets; keep any #fragment
+  return text.replace(
+    /\]\((?!https?:|\/|#)([^)#\s]+\.md)(#[^)\s]*)?\)/g,
+    (_match, file: string, hash = "") => `](${dir}${file}${hash})`
+  );
 }
 
 const helpPage = ttlCacheBy(
   TTL_MS,
-  async (slug: string) => normalize(await fetchDocs(`${slug}.md`)),
+  async (slug: string) => {
+    const cut = slug.lastIndexOf("/");
+    const dir = cut === -1 ? "" : slug.slice(0, cut + 1);
+    return normalize(await fetchDocs(`${slug}.md`), dir);
+  },
   { staleOnError: true }
 );
 
