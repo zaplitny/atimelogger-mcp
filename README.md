@@ -79,7 +79,7 @@ No token yet? The server also starts without `ATL_TOKEN` in **docs-only mode**: 
 | `pause_resume_activity` | Pause or resume |
 | `log_interval` | Retroactively log a completed entry (wall-clock times, optional comment/tags) |
 | `update_activity` | Change the comment/tags of an existing entry (running or past) without touching its times |
-| `update_interval` | Move a past entry's start and/or end (wall-clock times, or `HH:mm` on the entry's own day); only that entry changes, its comment, tags and type stay |
+| `update_interval` | Move an entry's start and/or end (wall-clock times, or `HH:mm` on the entry's own day), or when a running timer started; only those times change, the comment, tags and type stay. Without `interval_id`, `from` moves a running timer's start, or a paused or stopped activity's first entry, and `to` its last entry |
 | `archive_activity_type` | Archive a type or group the user no longer uses, or restore an archived one (`restore`). Archived types cannot be started or logged, but their history stays in reports |
 | `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates), with each type's color and icon name |
 | `list_intervals` | Raw history grouped by day, paged, max 100-day range |
@@ -294,5 +294,5 @@ Notes:
 
 - `start_activity` cannot attach a comment (the underlying start endpoint takes only a type and time); add one afterwards with `update_activity`, or use `log_interval` for retroactive entries with comments/tags.
 - Existing entries can get a new comment or tags (`update_activity`) and new start/end times (`update_interval`), but cannot be deleted — use the ATimeLogger app for that (the assistant can explain how via `app_help`).
-- A running timer's current stretch is not an entry yet, so its start cannot be moved; pause or stop the timer first (`stop_activity` can backdate the stop). A paused timer's stretches are entries like any other.
+- Moving a running timer's start needs an ATimeLogger server with the `PATCH /api/activities/{id}/start` endpoint (app.atimelogger.pro gets it with its next deploy). On an older server, pause the timer, move the entry that pausing creates, and resume. A running timer has no end yet: `stop_activity` with `at` ends it in the past. A paused timer's stretches are entries like any other.
 - History requests are capped at 100 days by the backend.

@@ -261,6 +261,71 @@ test("updateIntervalTime refuses what the entry cannot be, without sending anyth
   assert.ok(!calls.some((c) => c.method === "PUT"));
 });
 
+/** A timer running since 00:20 UTC yesterday after an earlier 21-second stretch, or paused with that one stretch. Yesterday, so no time it is moved to can be in the future. */
+function timerBackend(status, startRoute = () => new Response(null, { status: 204 })) {
+  const today = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const first = Date.parse(`${today}T00:10:00Z`) / 1000;
+  const activity = { id: "a7", typeId: "t1", status, duration: 21,
+    start: status === "RUNNING" ? `${today}T00:20:00.000Z` : undefined,
+    intervals: [{ id: "i7", from: first, to: first + 21, duration: 21 }] };
+  return { today, ...mockCtx({
+    "GET /api/activities/a7": activity,
+    "PATCH /api/activities/a7/start": startRoute,
+    "PUT /api/activities/a7/intervals/i7": () => new Response(null, { status: 200 }),
+  }) };
+}
+
+test("without an entry, a running timer's start moves through PATCH …/start and it keeps running", async () => {
+  const { ctx, calls, today } = timerBackend("RUNNING");
+  const moved = await updateIntervalTime({ activity_id: "a7", from: "00:15", timezone: "UTC" }, ctx);
+  const patch = calls.find((c) => c.method === "PATCH");
+  assert.equal(patch.path, "/api/activities/a7/start");
+  assert.deepEqual(patch.body, { start: `${today}T00:15:00.000Z` });
+  assert.equal(calls.some((c) => c.method === "PUT"), false, "no entry was touched");
+  assert.equal(moved.running, true);
+  assert.equal(moved.interval_id, undefined);
+  assert.deepEqual([moved.was_from, moved.from], [`${today} 00:20`, `${today} 00:15`]);
+});
+
+test("a running timer's start cannot go before its previous stretch ended, nor get an end", async () => {
+  const { ctx, calls } = timerBackend("RUNNING");
+  await assert.rejects(updateIntervalTime({ activity_id: "a7", from: "00:05", timezone: "UTC" }, ctx), /before its previous stretch ended/);
+  await assert.rejects(updateIntervalTime({ activity_id: "a7", to: "00:30", timezone: "UTC" }, ctx), /stop_activity/);
+  assert.equal(calls.some((c) => c.method === "PATCH" || c.method === "PUT"), false);
+});
+
+test("a server without the start endpoint gets told to pause and move the entry instead", async () => {
+  for (const status of [404, 405]) {
+    const { ctx } = timerBackend("RUNNING", status);
+    await assert.rejects(
+      updateIntervalTime({ activity_id: "a7", from: "00:15", timezone: "UTC" }, ctx),
+      (e) => e instanceof UsageError && /cannot move a running timer's start yet/.test(e.message) && /Pause the timer/.test(e.message),
+      `on ${status}`
+    );
+  }
+  // any other failure is the server's own answer, passed on as it is
+  const { ctx } = timerBackend("RUNNING", 422);
+  await assert.rejects(updateIntervalTime({ activity_id: "a7", from: "00:15", timezone: "UTC" }, ctx), /API error 422/);
+});
+
+test("a paused timer's stretch is an entry: without interval_id, `from` moves its first one", async () => {
+  // the case a user hit: "move the paused activity's start to 19:10" was refused
+  const { ctx, calls, today } = timerBackend("PAUSED");
+  const moved = await updateIntervalTime({ activity_id: "a7", from: "00:01", timezone: "UTC" }, ctx);
+  const put = calls.find((c) => c.method === "PUT");
+  assert.equal(put.path, "/api/activities/a7/intervals/i7");
+  assert.equal(put.body.start, `${today}T00:01:00.000Z`);
+  assert.equal(put.body.finish, `${today}T00:10:21.000Z`, "its end stays");
+  assert.equal(moved.interval_id, "i7");
+});
+
+test("with several entries and both times, the entry has to be named", async () => {
+  const from = Date.parse("2026-08-05T09:00:00Z") / 1000;
+  const { ctx } = mockCtx({ "GET /api/activities/a8": { id: "a8", typeId: "t1", status: "STOPPED", duration: 120,
+    intervals: [{ id: "x", from, to: from + 60, duration: 60 }, { id: "y", from: from + 120, to: from + 180, duration: 60 }] } });
+  await assert.rejects(updateIntervalTime({ activity_id: "a8", from: "08:00", to: "11:00", timezone: "UTC" }, ctx), /several entries/);
+});
+
 test("an archived type cannot be started or logged, even by id", async () => {
   const { ctx, calls } = mockCtx({});
   await assert.rejects(startActivity({ type_id: "t4" }, ctx), /"Retired" is archived/);

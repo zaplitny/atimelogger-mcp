@@ -5,7 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - Unreleased
+## [0.3.1] - Unreleased
+
+### Added
+
+- `update_interval` moves a running timer's start ("I actually started at 19:10"). Leave out `interval_id` and give the new `from`; the activity id may come from `get_current_status`. The timer keeps running, and the answer says since when (`running_since`) and for how long (`elapsed`). A start before the timer's previous stretch ended is refused, and so is a `to`: a running timer has not ended yet, so `stop_activity` with `at` ends it in the past.
+- Without `interval_id`, a paused or stopped activity's first entry gets the new `from` and its last entry the new `to`, so moving a paused timer's start no longer needs an entry id. Given both times, an activity with several entries asks for `interval_id`.
+
+Moving a running timer's start needs an ATimeLogger server with the new `PATCH /api/activities/{id}/start` endpoint; the hosted app.atimelogger.pro gets it with its next deploy. An older server cannot do it: the tool then says so and suggests pausing the timer, moving the entry that pausing creates and resuming. Everything else in `update_interval` works as before on any server.
+
+## [0.3.0] - 2026-11-20
 
 ### Fixed
 
@@ -88,6 +97,7 @@ First public release on npm as [`atimelogger-mcp`](https://www.npmjs.com/package
 - `npm run setup` script: verifies a pasted token and prints ready-to-use registration snippets.
 - npm packaging (`npx atimelogger-mcp`) and README guides for Claude Code, Claude Desktop, and a self-hosted remote endpoint (Custom Connector) behind Docker + nginx.
 
+[0.3.1]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.1...v0.1.2

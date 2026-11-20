@@ -5,6 +5,7 @@ import { defaultContext, type Ctx } from "../context.js";
 import { wallTimeToUtc, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
+import { ApiError } from "../client.js";
 import { ADDS, READS, REPLACES } from "./annotations.js";
 
 interface IntervalDto {
@@ -417,10 +418,13 @@ export async function updateActivity(args: UpdateArgs, ctx: Ctx = defaultContext
 }
 
 export interface IntervalTimeArgs {
-  /** Owning activity, from list_intervals. */
+  /** Owning activity, from list_intervals or get_current_status. */
   activity_id: string;
-  /** The entry, from list_intervals. */
-  interval_id: string;
+  /**
+   * The entry, from list_intervals. Without it: a running timer's `from` moves when its current
+   * stretch began; otherwise `from` moves the activity's first entry and `to` its last.
+   */
+  interval_id?: string;
   /** New start: "yyyy-MM-dd HH:mm" in `timezone`, or "HH:mm" on the day the entry starts. Unchanged when omitted. */
   from?: string;
   /** New end: "yyyy-MM-dd HH:mm", or "HH:mm" on the day the entry ends. Unchanged when omitted. */
@@ -431,7 +435,10 @@ export interface IntervalTimeArgs {
 export interface MovedInterval {
   activity: string;
   activity_id: string;
-  interval_id: string;
+  /** Absent when a running timer's current stretch was moved: it is no entry yet. */
+  interval_id?: string;
+  /** A running timer's current stretch was moved; `to` and `was_to` are now. */
+  running?: boolean;
   type_id: string;
   /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`, after the change. */
   from: string;
@@ -445,9 +452,11 @@ export interface MovedInterval {
 }
 
 /**
- * Move one past entry (interval) to new times. Only that interval changes: the activity's comment,
- * tags and other intervals stay, and so does its type. The stretch a timer is running now is not
- * an interval, so it cannot be moved here.
+ * Move one entry (interval) to new times: a past one, or one of a paused timer's, whose stretches
+ * are entries like any other. Only that interval changes: the activity's comment, tags and other
+ * intervals stay, and so does its type. Without an interval_id, a running timer's current stretch,
+ * which is no interval yet, gets a new start through PATCH /api/activities/{id}/start; any other
+ * activity's first entry gets the new `from` and its last entry the new `to`.
  */
 export async function updateIntervalTime(args: IntervalTimeArgs, ctx: Ctx = defaultContext()): Promise<MovedInterval> {
   if (!args.from?.trim() && !args.to?.trim()) {
@@ -456,15 +465,31 @@ export async function updateIntervalTime(args: IntervalTimeArgs, ctx: Ctx = defa
   const tz = await ctx.timezone.effectiveTimezone(args.timezone);
   const activityPath = `/api/activities/${encodeURIComponent(args.activity_id)}`;
   const activity = await ctx.api.get<ActivityDto>(activityPath);
-  const interval = activity.intervals?.find((i) => i.id === args.interval_id);
-  if (!interval) {
-    throw new UsageError("That entry is not part of this activity (any more) — call list_intervals for current ids.");
-  }
   // "HH:mm" alone means on the entry's own day, in the user's timezone
   const at = (value: string, unixSeconds: number) =>
     /^\d{1,2}:\d{2}$/.test(value.trim())
       ? wallTimeToUtc(`${unixToLocal(unixSeconds, tz).slice(0, 10)} ${value.trim().padStart(5, "0")}`, tz)
       : wallTimeToUtc(value, tz);
+  const entries = [...(activity.intervals ?? [])].sort((a, b) => a.from - b.from);
+
+  if (!args.interval_id && activity.status === "RUNNING" && activity.start) {
+    return moveRunningStart(args, activity, entries, at, tz, activityPath, ctx);
+  }
+  const chosen = args.interval_id
+    ? entries.find((i) => i.id === args.interval_id)
+    : args.from?.trim() && args.to?.trim()
+      ? entries.length === 1 ? entries[0] : undefined
+      : args.from?.trim() ? entries[0] : entries[entries.length - 1];
+  if (!chosen) {
+    throw new UsageError(
+      args.interval_id
+        ? "That entry is not part of this activity (any more) — call list_intervals for current ids."
+        : entries.length === 0
+          ? "This activity has no entries yet."
+          : "This activity has several entries — pass interval_id (from list_intervals) to say which one moves."
+    );
+  }
+  const interval = chosen;
   const start = args.from?.trim() ? at(args.from, interval.from) : new Date(interval.from * 1000);
   const finish = args.to?.trim() ? at(args.to, interval.to) : new Date(interval.to * 1000);
   if (finish.getTime() <= start.getTime()) {
@@ -474,8 +499,8 @@ export async function updateIntervalTime(args: IntervalTimeArgs, ctx: Ctx = defa
     throw new UsageError("An entry cannot end in the future.");
   }
   // a typeId other than the activity's would change the activity's type: always send the current one
-  await ctx.api.put(`${activityPath}/intervals/${encodeURIComponent(args.interval_id)}`, {
-    id: args.interval_id,
+  await ctx.api.put(`${activityPath}/intervals/${encodeURIComponent(interval.id)}`, {
+    id: interval.id,
     activityId: args.activity_id,
     typeId: activity.typeId,
     start: toServerDateTime(start),
@@ -486,12 +511,66 @@ export async function updateIntervalTime(args: IntervalTimeArgs, ctx: Ctx = defa
   return {
     activity: names.get(activity.typeId) ?? activity.typeId,
     activity_id: args.activity_id,
-    interval_id: args.interval_id,
+    interval_id: interval.id,
     type_id: activity.typeId,
     from: unixToLocal(start.getTime() / 1000, tz),
     to: unixToLocal(finish.getTime() / 1000, tz),
     was_from: unixToLocal(interval.from, tz),
     was_to: unixToLocal(interval.to, tz),
+    timezone: tz,
+    duration: formatDuration(seconds),
+    seconds,
+  };
+}
+
+/** A running timer's current stretch, which is no entry yet, begins at a new time; it keeps running. */
+async function moveRunningStart(
+  args: IntervalTimeArgs,
+  activity: ActivityDto,
+  entries: IntervalDto[],
+  at: (value: string, unixSeconds: number) => Date,
+  tz: string,
+  activityPath: string,
+  ctx: Ctx
+): Promise<MovedInterval> {
+  if (args.to?.trim()) {
+    throw new UsageError("A running timer has not ended yet. To end it at a past time, stop it with stop_activity and its `at`.");
+  }
+  const was = Date.parse(activity.start!);
+  const start = at(args.from!, was / 1000);
+  const now = Date.now();
+  if (start.getTime() > now) {
+    throw new UsageError("A timer cannot start in the future.");
+  }
+  const previousEnd = Math.max(0, ...entries.map((i) => i.to)) * 1000;
+  if (start.getTime() < previousEnd) {
+    throw new UsageError(
+      `It would start before its previous stretch ended at ${unixToLocal(previousEnd / 1000, tz)}. Move that entry instead (interval_id from list_intervals).`
+    );
+  }
+  try {
+    await ctx.api.patch(`${activityPath}/start`, { start: toServerDateTime(start) });
+  } catch (e) {
+    // an ATimeLogger server from before the start endpoint has no such route
+    if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+      throw new UsageError(
+        "This ATimeLogger server cannot move a running timer's start yet. Pause the timer, then move the entry " +
+          "that pausing creates (list_intervals for its id), and resume."
+      );
+    }
+    throw e;
+  }
+  const names = await ctx.types.typeNameById();
+  const seconds = Math.round((now - start.getTime()) / 1000);
+  return {
+    activity: names.get(activity.typeId) ?? activity.typeId,
+    activity_id: args.activity_id,
+    running: true,
+    type_id: activity.typeId,
+    from: unixToLocal(start.getTime() / 1000, tz),
+    to: unixToLocal(now / 1000, tz),
+    was_from: unixToLocal(was / 1000, tz),
+    was_to: unixToLocal(now / 1000, tz),
     timezone: tz,
     duration: formatDuration(seconds),
     seconds,
@@ -623,15 +702,21 @@ export function registerActivityTools(
     {
       title: "Change entry times",
       description:
-        "Change when a past time entry started and/or ended. Only that entry's times change: its comment, tags and type " +
-        "stay, and so do the activity's other entries. Get interval_id (the entry's id) and activity_id from list_intervals. " +
-        "Times are wall-clock in the user's timezone: \"yyyy-MM-dd HH:mm\", or \"HH:mm\" for the entry's own day. " +
-        "A timer that is running now has no entry for its current stretch yet; stop it first (stop_activity can backdate). " +
-        "The stretches of a paused timer are entries like any other and can be moved; a running timer's current stretch " +
-        "becomes one once it is paused or stopped.",
+        "Change when a time entry started and/or ended, or when a running timer started. Only those times change: the " +
+        "comment, tags and type stay, and so do the activity's other entries. The stretches of a paused timer are entries " +
+        "like any other and can be moved. To move one entry, pass its interval_id and activity_id from list_intervals. " +
+        "Without interval_id: for a running timer, `from` moves when its current stretch started (\"I actually started at " +
+        "19:10\"; activity_id from get_current_status); for a paused or stopped activity, `from` moves its first entry's " +
+        "start and `to` its last entry's end. A running timer has no end yet: to end it in the past, use stop_activity " +
+        "with `at`. Times are wall-clock in the user's timezone: \"yyyy-MM-dd HH:mm\", or \"HH:mm\" for the entry's own day.",
       inputSchema: {
-        activity_id: z.string().describe("activity_id of the entry from list_intervals (internal — never show ids to the user)"),
-        interval_id: z.string().describe("id of the entry from list_intervals (internal — never show ids to the user)"),
+        activity_id: z
+          .string()
+          .describe("activity_id from list_intervals, or an active timer's id from get_current_status (internal — never show ids to the user)"),
+        interval_id: z
+          .string()
+          .optional()
+          .describe("id of the entry from list_intervals; omit to move a running timer's start or an activity's first/last entry (internal — never show ids to the user)"),
         from: z.string().optional().describe("New start, \"yyyy-MM-dd HH:mm\" or \"HH:mm\"; unchanged when omitted"),
         to: z.string().optional().describe("New end, \"yyyy-MM-dd HH:mm\" or \"HH:mm\"; unchanged when omitted"),
         timezone: z.string().optional().describe("IANA timezone of the times (default: the user's)"),
@@ -640,7 +725,11 @@ export function registerActivityTools(
     },
     withErrors(async (args) => {
       const moved = await updateIntervalTime(args, ctx);
-      return textResult({ moved: moved.activity, from: moved.from, to: moved.to, timezone: moved.timezone, duration: moved.duration });
+      return textResult(
+        moved.running
+          ? { moved: moved.activity, running_since: moved.from, timezone: moved.timezone, elapsed: moved.duration }
+          : { moved: moved.activity, from: moved.from, to: moved.to, timezone: moved.timezone, duration: moved.duration }
+      );
     })
   );
 
