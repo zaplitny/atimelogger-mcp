@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a Node 20+ TypeScript ESM MCP server for the ATimeLogger REST API. Source files live in `src/`. The entry point is `src/index.ts`, which creates the MCP server and registers tool groups from `src/tools/activities.ts`, `src/tools/reports.ts`, and `src/tools/types.ts`. Shared API, formatting, timezone, period, and error helpers are in top-level `src/*.ts` files. `scripts/setup.ts` verifies a Personal Access Token and prints MCP registration snippets. Build output goes to `dist/` and should not be edited by hand.
+This repository is a Node 20+ TypeScript ESM MCP server for the ATimeLogger REST API. Source files live in `src/`. The entry point is `src/index.ts`, which serves over stdio the MCP server that `src/server.ts` builds: its instructions and the tool groups from `src/tools/activities.ts`, `src/tools/reports.ts`, `src/tools/types.ts` and `src/tools/docs.ts`. Shared API, formatting, timezone, period, and error helpers are in top-level `src/*.ts` files. `scripts/setup.ts` verifies a Personal Access Token and prints MCP registration snippets. Build output goes to `dist/` and should not be edited by hand.
 
 ## Build, Test, and Development Commands
 

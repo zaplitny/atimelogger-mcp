@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ActivityTypeDto } from "../types-cache.js";
 import { defaultContext, type Ctx } from "../context.js";
 import { textResult, withErrors } from "../errors.js";
+import { READS } from "./annotations.js";
 
 export interface TypeNode {
   name: string;
@@ -38,19 +39,19 @@ export async function listTypes(
   return { types: buildTree(await ctx.types.getTypes(), includeArchived) };
 }
 
-export function registerTypeTools(server: McpServer): void {
+export function registerTypeTools(server: McpServer, ctx: Ctx = defaultContext()): void {
   server.registerTool(
     "list_activity_types",
     {
+      title: "Activity types",
       description:
         "List the user's activity types as a tree (groups contain children): names plus internal ids. " +
         "Use the names when talking to the user; use the ids for exact targeting in other tools.",
       inputSchema: {
         include_archived: z.boolean().optional().describe("Include archived types (default false)"),
       },
+      annotations: READS,
     },
-    withErrors(async ({ include_archived }) => {
-      return textResult(await listTypes(include_archived ?? false));
-    })
+    withErrors(async ({ include_archived }) => textResult(await listTypes(include_archived ?? false, ctx)))
   );
 }

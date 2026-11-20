@@ -17,6 +17,14 @@ export function normalizeBaseUrl(raw: string | undefined): string {
   return (raw ?? PROD_URL).replace(/\/+$/, "");
 }
 
+/**
+ * The public help site, the one setting app_help needs. Read on its own so that building the
+ * server never runs loadConfig(), which warns on stderr and exits on a botched token setup.
+ */
+export function docsBaseUrl(): string {
+  return (process.env.ATL_DOCS_URL ?? DOCS_URL).replace(/\/+$/, "") + "/";
+}
+
 export function setupInstructions(baseUrl: string): string {
   const baseUrlArg = baseUrl === PROD_URL ? "" : `-e ATL_BASE_URL=${baseUrl} `;
   return (
@@ -40,7 +48,7 @@ export function setupInstructions(baseUrl: string): string {
  */
 export function readEnvConfig(): Config {
   const baseUrl = normalizeBaseUrl(process.env.ATL_BASE_URL);
-  const docsUrl = (process.env.ATL_DOCS_URL ?? DOCS_URL).replace(/\/+$/, "") + "/";
+  const docsUrl = docsBaseUrl();
   const token = process.env.ATL_TOKEN || null;
   if (!token) {
     // Distinguish deliberate docs-only mode (no token config at all) from a

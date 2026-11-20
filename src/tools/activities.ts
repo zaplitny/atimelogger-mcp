@@ -5,6 +5,7 @@ import { defaultContext, type Ctx } from "../context.js";
 import { wallTimeToUtc, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
+import { ADDS, READS, REPLACES } from "./annotations.js";
 
 interface IntervalDto {
   id: string;
@@ -111,8 +112,8 @@ function statusForMcp(s: CurrentStatus): unknown {
   };
 }
 
-async function mcpStatus(timezone?: string): Promise<unknown> {
-  const ctx = defaultContext();
+/** What get_current_status returns: the status in the user's timezone, shaped for the model. */
+async function mcpStatus(timezone: string | undefined, ctx: Ctx): Promise<unknown> {
   return statusForMcp(await currentStatus(await ctx.timezone.effectiveTimezone(timezone), ctx));
 }
 
@@ -411,21 +412,31 @@ export async function updateActivity(args: UpdateArgs, ctx: Ctx = defaultContext
   return result;
 }
 
-export function registerActivityTools(server: McpServer): void {
+/** get_current_status, plus, unless `write` is false, the tools that change timers and entries. */
+export function registerActivityTools(
+  server: McpServer,
+  ctx: Ctx = defaultContext(),
+  { write = true }: { write?: boolean } = {}
+): void {
   server.registerTool(
     "get_current_status",
     {
+      title: "Current status",
       description: "Show currently running or paused activities with elapsed time.",
       inputSchema: {
         timezone: z.string().optional().describe("IANA timezone for displayed times (default: user's timezone)"),
       },
+      annotations: READS,
     },
-    withErrors(async ({ timezone }) => textResult(await mcpStatus(timezone)))
+    withErrors(async ({ timezone }) => textResult(await mcpStatus(timezone, ctx)))
   );
+
+  if (!write) return;
 
   server.registerTool(
     "start_activity",
     {
+      title: "Start timer",
       description:
         "Start tracking an activity by type name (fuzzy matched, see list_activity_types) or type_id. " +
         "Optionally backdate the start with `at` (wall-clock) or started_minutes_ago.",
@@ -439,16 +450,18 @@ export function registerActivityTools(server: McpServer): void {
         started_minutes_ago: z.number().min(0).optional().describe("Backdate the start by N minutes (alternative to `at`)"),
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const started = await startActivity(args);
-      return textResult({ started: started.activity, status: await mcpStatus(started.timezone) });
+      const started = await startActivity(args, ctx);
+      return textResult({ started: started.activity, status: await mcpStatus(started.timezone, ctx) });
     })
   );
 
   server.registerTool(
     "stop_activity",
     {
+      title: "Stop timer",
       description:
         "Stop a running or paused activity. type_name may be omitted when exactly one activity is active. " +
         "Optionally backdate the stop with `at` (wall-clock) or stopped_minutes_ago.",
@@ -462,9 +475,10 @@ export function registerActivityTools(server: McpServer): void {
         stopped_minutes_ago: z.number().min(0).optional().describe("Backdate the stop by N minutes (alternative to `at`)"),
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const stopped = await stopActivity(args);
+      const stopped = await stopActivity(args, ctx);
       return textResult({ stopped: stopped.activity, tracked: stopped.tracked });
     })
   );
@@ -472,15 +486,17 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "pause_resume_activity",
     {
+      title: "Pause or resume timer",
       description: "Pause a running activity or resume a paused one.",
       inputSchema: {
         action: z.enum(["pause", "resume"]),
         type_name: z.string().optional().describe("Which activity (needed only if several match)"),
         activity_id: z.string().optional().describe("Exact activity id from get_current_status (internal — never show ids to the user)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const result = await pauseResumeActivity(args);
+      const result = await pauseResumeActivity(args, ctx);
       return textResult({ [args.action === "pause" ? "paused" : "resumed"]: result.activity });
     })
   );
@@ -488,6 +504,7 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "log_interval",
     {
+      title: "Log time entry",
       description:
         "Retroactively log a completed time entry for an activity type. " +
         "Times are wall-clock in the user's timezone, format \"yyyy-MM-dd HH:mm\".",
@@ -500,9 +517,10 @@ export function registerActivityTools(server: McpServer): void {
         tags: z.array(z.string()).optional(),
         timezone: z.string().optional().describe("IANA timezone the times are given in (default: user's timezone)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const logged = await logInterval(args);
+      const logged = await logInterval(args, ctx);
       return textResult({
         logged: logged.activity,
         from: `${logged.from} (${logged.timezone})`,
@@ -517,6 +535,7 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "update_activity",
     {
+      title: "Update comment or tags",
       description:
         "Update the comment and/or tags of an existing entry (running, paused, or stopped) without changing its tracked time. " +
         "Use this instead of logging a new entry when the user wants to annotate, describe, or re-tag something already tracked. " +
@@ -531,9 +550,10 @@ export function registerActivityTools(server: McpServer): void {
           .optional()
           .describe("Full new tag list — replaces existing tags (include current tags to keep them); [] clears them"),
       },
+      annotations: REPLACES,
     },
     withErrors(async (args) => {
-      const updated = await updateActivity(args);
+      const updated = await updateActivity(args, ctx);
       return textResult(
         compact({
           updated: updated.activity,

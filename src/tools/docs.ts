@@ -1,11 +1,12 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { textResult, withErrors } from "../errors.js";
-import { loadConfig } from "../config.js";
+import { READS } from "./annotations.js";
+import { docsBaseUrl } from "../config.js";
 import { ttlCache, ttlCacheBy } from "../ttl-cache.js";
 
 // Public help site — unauthenticated, a different host than the API (baseUrl).
-const { docsUrl } = loadConfig();
+const docsUrl = docsBaseUrl();
 
 export interface HelpPage {
   slug: string;
@@ -119,6 +120,7 @@ export function registerDocTools(server: McpServer): void {
   server.registerTool(
     "app_help",
     {
+      title: "App help",
       description:
         "Official ATimeLogger app documentation. Use it to answer any question about how the app works, " +
         "or how to do in the app what these tools cannot (edit entry times, delete records, goals, widgets, " +
@@ -134,6 +136,7 @@ export function registerDocTools(server: McpServer): void {
             "Topic slugs from the table of contents (fuzzy matched against slug and title). Omit to get the table of contents."
           ),
       },
+      annotations: READS,
     },
     withErrors(async ({ topics }) => {
       if (!topics || topics.length === 0) {

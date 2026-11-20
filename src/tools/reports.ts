@@ -4,6 +4,7 @@ import { defaultContext, type Ctx } from "../context.js";
 import { PERIOD_WORDS, resolveRange, rangeDays, unixToLocal, type DateRange, type PeriodWord } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
+import { READS } from "./annotations.js";
 
 const rangeSchema = {
   period: z
@@ -273,10 +274,11 @@ function intervalsForMcp(p: IntervalsPage): unknown {
   });
 }
 
-export function registerReportTools(server: McpServer): void {
+export function registerReportTools(server: McpServer, ctx: Ctx = defaultContext()): void {
   server.registerTool(
     "time_report",
     {
+      title: "Time report",
       description:
         "Aggregated time statistics per activity type for a date range. " +
         "Returns overall totals plus per-DAY/WEEK/MONTH buckets.",
@@ -284,13 +286,15 @@ export function registerReportTools(server: McpServer): void {
         ...rangeSchema,
         group_by: z.enum(["DAY", "WEEK", "MONTH"]).optional().describe("Bucket size for the periods breakdown (default DAY)"),
       },
+      annotations: READS,
     },
-    withErrors(async (args) => textResult(reportForMcp(await timeReport(args))))
+    withErrors(async (args) => textResult(reportForMcp(await timeReport(args, ctx))))
   );
 
   server.registerTool(
     "list_intervals",
     {
+      title: "Time entries",
       description:
         "List raw time entries (intervals) grouped by day for a date range (max 100 days). " +
         "Paged by day — use `page` for older days.",
@@ -299,7 +303,8 @@ export function registerReportTools(server: McpServer): void {
         page: z.number().int().min(0).optional().describe("Page number, 0-based (default 0)"),
         size: z.number().int().min(1).max(50).optional().describe("Days per page (default 20, max 50)"),
       },
+      annotations: READS,
     },
-    withErrors(async (args) => textResult(intervalsForMcp(await listIntervals(args))))
+    withErrors(async (args) => textResult(intervalsForMcp(await listIntervals(args, ctx))))
   );
 }
