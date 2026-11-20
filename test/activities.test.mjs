@@ -260,3 +260,10 @@ test("updateIntervalTime refuses what the entry cannot be, without sending anyth
   await assert.rejects(updateIntervalTime({ activity_id: "a1", interval_id: "nope", from: "08:00", timezone: "UTC" }, ctx), /list_intervals/);
   assert.ok(!calls.some((c) => c.method === "PUT"));
 });
+
+test("an archived type cannot be started or logged, even by id", async () => {
+  const { ctx, calls } = mockCtx({});
+  await assert.rejects(startActivity({ type_id: "t4" }, ctx), /"Retired" is archived/);
+  await assert.rejects(logInterval({ type_id: "t4", from: "2026-08-05 09:00", to: "2026-08-05 10:00", timezone: "UTC" }, ctx), /"Retired" is archived/);
+  assert.ok(!calls.some((c) => c.method === "POST"), "nothing was sent");
+});

@@ -9,7 +9,7 @@ const CLI = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 
 const ROUTES = (path, body) => {
   if (path === "/api/users/me") return { timeZone: "UTC" };
-  if (path === "/api/types") return TYPES;
+  if (path.split("?")[0] === "/api/types") return TYPES;
   if (path === "/api/activities") return { activities: [{ id: "a1", typeId: "t1", status: "RUNNING", start: "2026-08-06T07:00:00.000Z", duration: 3600 }] };
   if (path === "/api/statistics") return { total: { info: { total: 3600 }, groupedStatistics: [{ types: ["t1"], duration: 3600 }] }, periods: [] };
   if (path.startsWith("/api/intervals")) {

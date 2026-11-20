@@ -32,7 +32,7 @@ const CONVENTIONS = [
 ].join("\n");
 
 const CHOOSING_WRITE =
-  "Choosing a tool: start_activity begins a timer now — or backdated via `at` (wall-clock \"HH:mm\") or started_minutes_ago — and cannot attach a comment; stop_activity backdates the same way; log_interval records a completed entry retroactively with optional comment/tags; update_activity changes the comment/tags of an existing entry (use it to annotate a running timer or a past entry — never log a duplicate entry just to attach a comment); update_interval moves a past entry's start and/or end (never delete and re-log it to fix its times); time_report gives per-type aggregates; list_intervals gives raw history (max 100-day range, paged) whose entries carry the activity_id that update_activity needs, and the id and activity_id that update_interval needs. get_current_status returns the current wall-clock time (`now`) in the user's timezone — use it whenever you need a clock.";
+  "Choosing a tool: start_activity begins a timer now — or backdated via `at` (wall-clock \"HH:mm\") or started_minutes_ago — and cannot attach a comment; stop_activity backdates the same way; log_interval records a completed entry retroactively with optional comment/tags; update_activity changes the comment/tags of an existing entry (use it to annotate a running timer or a past entry — never log a duplicate entry just to attach a comment); update_interval moves a past entry's start and/or end (never delete and re-log it to fix its times); time_report gives per-type aggregates; list_intervals gives raw history (max 100-day range, paged) whose entries carry the activity_id that update_activity needs, and the id and activity_id that update_interval needs. get_current_status returns the current wall-clock time (`now`) in the user's timezone — use it whenever you need a clock. archive_activity_type archives a type or group the user no longer uses, or restores an archived one with restore=true — only when the user asks.";
 
 const CHOOSING_READ =
   "Choosing a tool: time_report gives per-type aggregates; list_intervals gives raw history (max 100-day range, paged); get_current_status shows running timers and returns the current wall-clock time (`now`) in the user's timezone — use it whenever you need a clock. This connection can only read: it cannot start, stop or pause timers, log entries, change comments or change entry times. Say so when asked, and explain how to do it in the app (app_help).";
@@ -53,7 +53,7 @@ export function createAtlServer({ version, ctx = defaultContext(), write = true 
   ].join("\n");
 
   const server = new McpServer({ name: "atimelogger", version }, { instructions });
-  registerTypeTools(server, ctx);
+  registerTypeTools(server, ctx, { write });
   registerActivityTools(server, ctx, { write });
   registerReportTools(server, ctx);
   registerDocTools(server);

@@ -18,7 +18,7 @@ const routes = (path, method) => {
   if (/^\/api\/activities\/[^/]+$/.test(path)) return ACTIVITY;
   if (path === "/api/activities" && method === "POST") return ACTIVITY;
   if (path === "/api/users/me") return { timeZone: "UTC" };
-  if (path === "/api/types") return TYPES;
+  if (path.split("?")[0] === "/api/types") return TYPES;
   if (path === "/api/activities") return { activities: [{ id: "a1", typeId: "t1", status: "RUNNING", start: "2026-08-06T07:00:00.000Z", duration: 3600 }] };
   if (path === "/api/statistics") return { total: { info: { total: 3600 }, groupedStatistics: [{ types: ["t1"], duration: 3600 }] }, periods: [{ title: "Aug 6", info: { total: 3600 } }] };
   if (path.startsWith("/api/intervals")) return {
@@ -59,7 +59,8 @@ test("registers exactly the documented tool set", async () => {
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     "app_help", "get_current_status", "list_activity_types", "list_intervals", "log_interval",
     "pause_resume_activity", "start_activity", "stop_activity", "time_report", "update_activity", "update_interval",
-  ]);
+    "archive_activity_type",
+  ].sort());
   for (const t of tools) {
     assert.ok(t.description?.length > 20, `${t.name} needs a description the model can act on`);
     assert.equal(t.inputSchema.type, "object", t.name);

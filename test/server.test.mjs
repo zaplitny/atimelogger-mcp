@@ -6,7 +6,7 @@ import { createAtlServer } from "../dist/server.js";
 import { mockCtx } from "./helpers.mjs";
 
 const READ_TOOLS = ["app_help", "get_current_status", "list_activity_types", "list_intervals", "time_report"];
-const WRITE_TOOLS = ["log_interval", "pause_resume_activity", "start_activity", "stop_activity", "update_activity", "update_interval"];
+const WRITE_TOOLS = ["archive_activity_type", "log_interval", "pause_resume_activity", "start_activity", "stop_activity", "update_activity", "update_interval"];
 
 async function connect(options, routes) {
   const server = createAtlServer({ version: "test", ctx: mockCtx(routes).ctx, ...options });
@@ -49,7 +49,8 @@ test("every tool has a title and states all three hints", async () => {
     assert.equal(tool.annotations.openWorldHint, false, `${tool.name} reaches only the user's own data or the docs`);
   }
   const destructive = tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name);
-  assert.deepEqual(destructive.sort(), ["update_activity", "update_interval"], "only replacing a comment, tags or an entry's times overwrites anything");
+  assert.deepEqual(destructive.sort(), ["archive_activity_type", "update_activity", "update_interval"],
+    "replacing a comment, tags or an entry's times overwrites something; archiving takes a type out of use");
 });
 
 test("the tools act on the account they were given", async () => {
@@ -70,4 +71,14 @@ test("update_interval tells the model that a paused timer's stretches can be mov
   const { tools } = await listTools({});
   const tool = tools.find((t) => t.name === "update_interval");
   assert.match(tool.description, /stretches of a paused timer are entries like any other and can be moved/);
+});
+
+test("archive_activity_type comes with the write tools, and can be undone", async () => {
+  const { tools, instructions } = await listTools({});
+  const tool = tools.find((t) => t.name === "archive_activity_type");
+  assert.equal(tool.annotations.readOnlyHint, false);
+  assert.equal(tool.annotations.destructiveHint, true, "archiving takes a type out of use, even though it can be restored");
+  assert.equal(tool.annotations.idempotentHint, true);
+  assert.match(instructions, /archive_activity_type/);
+  assert.doesNotMatch((await listTools({ write: false })).instructions, /archive_activity_type/);
 });

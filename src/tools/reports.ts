@@ -149,20 +149,25 @@ export interface IntervalsPage {
   has_more: boolean;
 }
 
+/** The type and tag filters as the statistics and history endpoints take them: names resolved (groups and archived types too), empty ones left out. */
+async function filters(args: ReportArgs, ctx: Ctx): Promise<{ types?: string[]; tags?: string[] }> {
+  const resolved = await ctx.types.resolveTypeNames(args.type_names, { allowGroups: true, includeArchived: true });
+  const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
+  return {
+    types: types.length > 0 ? types : undefined,
+    tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
+  };
+}
+
 export async function timeReport(
   args: ReportArgs & { group_by?: "DAY" | "WEEK" | "MONTH" },
   ctx: Ctx = defaultContext()
 ): Promise<TimeReport> {
   const tz = await ctx.timezone.effectiveTimezone(args.timezone);
   const range = resolveRange(args, tz);
-  const [resolved, names] = await Promise.all([
-    ctx.types.resolveTypeNames(args.type_names, { allowGroups: true }),
-    ctx.types.typeNameById(),
-  ]);
-  const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
+  const [filter, names] = await Promise.all([filters(args, ctx), ctx.types.typeNameById()]);
   const stats = await ctx.api.post<StatisticsDto>("/api/statistics", {
-    types: types.length > 0 ? types : undefined,
-    tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
+    ...filter,
     from: range.from,
     to: range.to,
     timezone: tz,
@@ -192,20 +197,10 @@ export async function listIntervals(
   if (rangeDays(range) > 100) {
     throw new UsageError("Date range too large — the history API allows at most 100 days per request.");
   }
-  const [resolved, names] = await Promise.all([
-    ctx.types.resolveTypeNames(args.type_names, { allowGroups: true }),
-    ctx.types.typeNameById(),
-  ]);
-  const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
+  const [filter, names] = await Promise.all([filters(args, ctx), ctx.types.typeNameById()]);
   const result = await ctx.api.post<PageDto<DayHistory>>(
     `/api/intervals?page=${args.page ?? 0}&size=${args.size ?? 20}`,
-    {
-      types: types.length > 0 ? types : undefined,
-      tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
-      from: range.from,
-      to: range.to,
-      timezone: tz,
-    }
+    { ...filter, from: range.from, to: range.to, timezone: tz }
   );
   return {
     range,

@@ -132,3 +132,9 @@ test("listTypes builds a tree and hides archived types by default", async () => 
   assert.ok(all.types.some((t) => t.name === "Retired" && t.archived === true));
   assert.ok(!all.types.some((t) => t.name === "Gone"), "deleted types stay hidden either way");
 });
+
+test("a report filter may name an archived type: its history is kept", async () => {
+  const { ctx, calls } = mockCtx({ "POST /api/statistics": STATS });
+  await timeReport({ from: "2026-08-01", to: "2026-08-06", type_names: ["Retired"], timezone: "UTC" }, ctx);
+  assert.deepEqual(calls.find((c) => c.path === "/api/statistics").body.types, ["t4"]);
+});
