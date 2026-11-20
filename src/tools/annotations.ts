@@ -35,7 +35,7 @@ export const TOGGLES: ToolAnnotations = {
   openWorldHint: false,
 };
 
-/** Replaces something the user wrote (a comment, a tag list). */
+/** Replaces something the user wrote (a comment, a tag list, an entry's times). */
 export const REPLACES: ToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: true,

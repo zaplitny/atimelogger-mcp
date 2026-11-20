@@ -123,7 +123,7 @@ export function registerDocTools(server: McpServer): void {
       title: "App help",
       description:
         "Official ATimeLogger app documentation. Use it to answer any question about how the app works, " +
-        "or how to do in the app what these tools cannot (edit entry times, delete records, goals, widgets, " +
+        "or how to do in the app what these tools cannot (delete records, goals, widgets, " +
         "CSV export, sync, backups, Pomodoro, Premium features). Call with no arguments for the table of " +
         "contents (its note covers platform applicability), then again with `topics` to fetch the relevant " +
         "pages — answer from the docs, not from memory. Cross-references like `sync.md` inside a page point " +

@@ -58,7 +58,7 @@ test("registers exactly the documented tool set", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     "app_help", "get_current_status", "list_activity_types", "list_intervals", "log_interval",
-    "pause_resume_activity", "start_activity", "stop_activity", "time_report", "update_activity",
+    "pause_resume_activity", "start_activity", "stop_activity", "time_report", "update_activity", "update_interval",
   ]);
   for (const t of tools) {
     assert.ok(t.description?.length > 20, `${t.name} needs a description the model can act on`);

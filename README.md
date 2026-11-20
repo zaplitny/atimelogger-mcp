@@ -79,6 +79,7 @@ No token yet? The server also starts without `ATL_TOKEN` in **docs-only mode**: 
 | `pause_resume_activity` | Pause or resume |
 | `log_interval` | Retroactively log a completed entry (wall-clock times, optional comment/tags) |
 | `update_activity` | Change the comment/tags of an existing entry (running or past) without touching its times |
+| `update_interval` | Move a past entry's start and/or end (wall-clock times, or `HH:mm` on the entry's own day); only that entry changes, its comment, tags and type stay |
 | `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates) |
 | `list_intervals` | Raw history grouped by day, paged, max 100-day range |
 | `app_help` | Official app documentation ([atimelogger.pro/docs](https://atimelogger.pro/docs/)) — the assistant looks up how app features work (goals, widgets, sync, export, …) instead of guessing |
@@ -104,6 +105,10 @@ Things you can say to your assistant once the server is registered:
 **Annotating existing entries**
 
 > "Add a note to the current timer: reviewing the Q3 report" · "Tag this morning's Work session with 'client-x'" · "Update yesterday's meeting entry — it was the architecture sync"
+
+**Fixing entry times**
+
+> "My run this morning actually started at 7:10" · "Yesterday's meeting ended at 15:30, not 16:00" · "Move the paused Reading timer's start to 20:45"
 
 **Reports & history**
 
@@ -287,5 +292,6 @@ Notes:
 ## Limitations
 
 - `start_activity` cannot attach a comment (the underlying start endpoint takes only a type and time); add one afterwards with `update_activity`, or use `log_interval` for retroactive entries with comments/tags.
-- Only comments and tags of existing entries can be edited (`update_activity`); interval times cannot be changed and entries cannot be deleted — use the ATimeLogger app for that (the assistant can explain how via `app_help`).
+- Existing entries can get a new comment or tags (`update_activity`) and new start/end times (`update_interval`), but cannot be deleted — use the ATimeLogger app for that (the assistant can explain how via `app_help`).
+- A running timer's current stretch is not an entry yet, so its start cannot be moved; pause or stop the timer first (`stop_activity` can backdate the stop). A paused timer's stretches are entries like any other.
 - History requests are capped at 100 days by the backend.
