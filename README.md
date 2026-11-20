@@ -117,7 +117,7 @@ Things you can say to your assistant once the server is registered:
 
 **Learning the app** — answered from the official documentation rather than guesswork:
 
-> "How do goals work?" · "Why isn't my sync picking up yesterday's entries?" · "What's the difference between a group and a type?" · "Can I export to CSV?" · "How do I edit an entry's times?"
+> "How do goals work?" · "Why isn't my sync picking up yesterday's entries?" · "What's the difference between a group and a type?" · "Can I export to CSV?" · "How do I delete an entry?"
 
 **Combinations** — the assistant chains tools on its own:
 
