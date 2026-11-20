@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  currentStatus, startActivity, stopActivity, pauseResumeActivity, logInterval, updateActivity,
+  currentStatus, startActivity, stopActivity, pauseResumeActivity, logInterval, updateActivity, updateIntervalTime,
 } from "../dist/tools/activities.js";
 import { UsageError } from "../dist/errors.js";
 import { mockCtx } from "./helpers.mjs";
@@ -30,9 +30,28 @@ test("currentStatus resolves type names and keeps running plus paused", async ()
   assert.equal(s.status, "active");
   assert.deepEqual(s.active.map((a) => `${a.activity}/${a.status}`), ["Development/RUNNING", "Sleep/PAUSED"]);
   assert.equal(s.active[0].started, "2026-08-06 07:00");
-  assert.equal(s.active[0].seconds, 3600);
-  assert.equal(s.active[0].elapsed, "1h");
   assert.equal(s.active[1].started, undefined, "a paused timer has no start");
+  assert.equal(s.active[1].seconds, 1800);
+  assert.equal(s.active[1].elapsed, "30m");
+});
+
+test("a running timer's elapsed time includes the segment still running", async () => {
+  // `duration` holds the finished segments (10 min); the current one started 5 min ago
+  const start = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { ctx } = mockCtx({ "/api/activities": { activities: [{ id: "a1", typeId: "t1", status: "RUNNING", start, duration: 600 }] } });
+  const s = await currentStatus("UTC", ctx);
+  assert.ok(Math.abs(s.active[0].seconds - 900) <= 2, `expected about 900s, got ${s.active[0].seconds}`);
+  assert.equal(s.active[0].elapsed, "15m");
+});
+
+test("updateActivity's tracked time counts a running timer's current segment too", async () => {
+  const start = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { ctx } = mockCtx({
+    "PATCH /api/activities/a1/comment": new Response(null, { status: 204 }),
+    "GET /api/activities/a1": { id: "a1", typeId: "t1", status: "RUNNING", start, duration: 600 },
+  });
+  const r = await updateActivity({ activity_id: "a1", comment: "x" }, ctx);
+  assert.equal(r.tracked, "30m");
 });
 
 test("startActivity resolves a fuzzy name and posts time=0 for now", async () => {
@@ -160,46 +179,100 @@ test("logInterval rejects a backwards or empty range", async () => {
   await assert.rejects(logInterval({ ...bad, to: "2026-08-05 11:00" }, ctx), UsageError, "zero length");
 });
 
-test("updateActivity round-trips the record so intervals survive", async () => {
-  let stored = STORED();
-  const before = STORED();
+test("updateActivity patches only the comment and never PUTs the whole record", async () => {
   const { ctx, calls } = mockCtx({
-    "GET /api/activities/a1": () => stored,
-    "PUT /api/activities/a1": ({ body }) => { stored = body; return new Response("", { status: 200 }); },
+    "PATCH /api/activities/a1/comment": new Response(null, { status: 204 }),
+    "GET /api/activities/a1": () => ({ ...STORED(), comment: "edited" }),
   });
 
   const r = await updateActivity({ activity_id: "a1", comment: "edited" }, ctx);
 
-  assert.deepEqual(stored.intervals, before.intervals, "a naive PUT would soft-delete every interval");
-  assert.equal(stored.comment, "edited");
-  assert.deepEqual(stored.tags, before.tags, "tags untouched when not supplied");
-  assert.deepEqual(
-    calls.filter((c) => c.path === "/api/activities/a1").map((c) => c.method),
-    ["GET", "PUT", "GET"],
-    "read, modify, write, then re-read to report the stored state"
-  );
+  const writes = calls.filter((c) => c.method !== "GET");
+  assert.deepEqual(writes.map((c) => `${c.method} ${c.path}`), ["PATCH /api/activities/a1/comment"],
+    "a PUT would soft-delete every interval a phone added since the read");
+  assert.deepEqual(writes[0].body, { comment: "edited" });
   assert.equal(r.activity, "Development");
-  assert.equal(r.tracked, "2h");
+  assert.equal(r.comment, "edited");
+  assert.equal(r.tracked, "2h", "the result is re-read from the backend");
 });
 
-test("updateActivity replaces tags wholesale and can clear fields", async () => {
-  let stored = STORED();
-  const { ctx } = mockCtx({
-    "GET /api/activities/a1": () => stored,
-    "PUT /api/activities/a1": ({ body }) => { stored = body; return new Response("", { status: 200 }); },
+test("updateActivity sends the full tag list, and can clear both fields", async () => {
+  const { ctx, calls } = mockCtx({
+    "PATCH /api/activities/a1/comment": new Response(null, { status: 204 }),
+    "PATCH /api/activities/a1/tags": new Response(null, { status: 204 }),
+    "GET /api/activities/a1": STORED(),
   });
   await updateActivity({ activity_id: "a1", tags: ["one", "two"] }, ctx);
-  assert.deepEqual(stored.tags, ["one", "two"]);
-  assert.equal(stored.comment, "original", "comment survives a tags-only update");
-
   await updateActivity({ activity_id: "a1", comment: "", tags: [] }, ctx);
-  assert.equal(stored.comment, "");
-  assert.deepEqual(stored.tags, []);
-  assert.deepEqual(stored.intervals.length, 2, "clearing fields still preserves tracked time");
+
+  const writes = calls.filter((c) => c.method === "PATCH").map((c) => [c.path, c.body]);
+  assert.deepEqual(writes, [
+    ["/api/activities/a1/tags", { tags: ["one", "two"] }],
+    ["/api/activities/a1/comment", { comment: "" }],
+    ["/api/activities/a1/tags", { tags: [] }],
+  ]);
 });
 
 test("updateActivity with nothing to change is a UsageError", async () => {
   const { ctx, calls } = mockCtx({ "GET /api/activities/a1": STORED() });
   await assert.rejects(updateActivity({ activity_id: "a1" }, ctx), UsageError);
   assert.equal(calls.length, 0, "and it fails before touching the network");
+});
+
+/** A stopped activity with one entry 2026-08-05 09:00–10:00 UTC, and a backend that records the PUT. */
+function entryBackend() {
+  const from = Date.parse("2026-08-05T09:00:00Z") / 1000;
+  const activity = { id: "a1", typeId: "t1", status: "STOPPED", duration: 3600,
+    intervals: [{ id: "i1", from, to: from + 3600, duration: 3600 }] };
+  return mockCtx({
+    "GET /api/activities/a1": activity,
+    "PUT /api/activities/a1/intervals/i1": () => new Response(null, { status: 200 }),
+  });
+}
+
+test("updateIntervalTime moves one end of an entry and keeps the other, its type and the rest", async () => {
+  const { ctx, calls } = entryBackend();
+  const moved = await updateIntervalTime({ activity_id: "a1", interval_id: "i1", from: "2026-08-05 08:30", timezone: "UTC" }, ctx);
+  const writes = calls.filter((c) => c.method !== "GET");
+  assert.deepEqual(writes.map((c) => `${c.method} ${c.path}`), ["PUT /api/activities/a1/intervals/i1"],
+    "only the one interval is written, never the whole activity");
+  assert.deepEqual(writes[0].body, { id: "i1", activityId: "a1", typeId: "t1",
+    start: "2026-08-05T08:30:00.000Z", finish: "2026-08-05T10:00:00.000Z" });
+  assert.deepEqual(
+    { from: moved.from, to: moved.to, was_from: moved.was_from, was_to: moved.was_to, duration: moved.duration },
+    { from: "2026-08-05 08:30", to: "2026-08-05 10:00", was_from: "2026-08-05 09:00", was_to: "2026-08-05 10:00", duration: "1h 30m" }
+  );
+  assert.equal(moved.activity, "Development");
+});
+
+test("updateIntervalTime reads a bare HH:mm on the entry's own day, in the user's timezone", async () => {
+  const { ctx, calls } = entryBackend();
+  // 09:00–10:00 UTC is 12:00–13:00 in Moscow
+  await updateIntervalTime({ activity_id: "a1", interval_id: "i1", to: "12:45", timezone: "Europe/Moscow" }, ctx);
+  assert.equal(calls.find((c) => c.method === "PUT").body.finish, "2026-08-05T09:45:00.000Z");
+});
+
+test("updateIntervalTime refuses what the entry cannot be, without sending anything", async () => {
+  const { ctx, calls } = entryBackend();
+  await assert.rejects(updateIntervalTime({ activity_id: "a1", interval_id: "i1", timezone: "UTC" }, ctx), /Nothing to change/);
+  await assert.rejects(updateIntervalTime({ activity_id: "a1", interval_id: "i1", to: "08:00", timezone: "UTC" }, ctx), /end before it starts/);
+  await assert.rejects(updateIntervalTime({ activity_id: "a1", interval_id: "i1", to: "2099-01-01 10:00", timezone: "UTC" }, ctx), /future/);
+  await assert.rejects(updateIntervalTime({ activity_id: "a1", interval_id: "nope", from: "08:00", timezone: "UTC" }, ctx), /list_intervals/);
+  assert.ok(!calls.some((c) => c.method === "PUT"));
+});
+
+test("an archived type cannot be started or logged, even by id", async () => {
+  const { ctx, calls } = mockCtx({});
+  await assert.rejects(startActivity({ type_id: "t4" }, ctx), /"Retired" is archived/);
+  await assert.rejects(logInterval({ type_id: "t4", from: "2026-08-05 09:00", to: "2026-08-05 10:00", timezone: "UTC" }, ctx), /"Retired" is archived/);
+  assert.ok(!calls.some((c) => c.method === "POST"), "nothing was sent");
+});
+
+test("currentStatus and stopActivity carry the type id for exact targeting", async () => {
+  const { ctx } = mockCtx({
+    "/api/activities": { activities: [RUNNING] },
+    "POST /api/activities/stop/a1": { id: "a1", typeId: "t1", status: "STOPPED", duration: 3600 },
+  });
+  assert.equal((await currentStatus("UTC", ctx)).active[0].type_id, "t1");
+  assert.equal((await stopActivity({}, ctx)).type_id, "t1");
 });

@@ -5,6 +5,7 @@ import { defaultContext, type Ctx } from "../context.js";
 import { wallTimeToUtc, unixToLocal } from "../periods.js";
 import { formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
+import { ADDS, READS, REPLACES } from "./annotations.js";
 
 interface IntervalDto {
   id: string;
@@ -34,6 +35,7 @@ export interface ActiveActivity {
   activity: string;
   /** Activity id — pass to update_activity / stop_activity. */
   id: string;
+  type_id: string;
   status: "RUNNING" | "PAUSED";
   /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`; absent for paused timers. */
   started?: string;
@@ -52,23 +54,35 @@ export interface CurrentStatus {
   active: ActiveActivity[];
 }
 
+/**
+ * The backend's `duration` counts finished segments only; a running timer's current segment runs
+ * from `start` (reset on every resume, absent while paused) and has to be added here.
+ */
+function elapsedSeconds(a: ActivityDto, nowMs: number): number {
+  if (a.status !== "RUNNING" || !a.start) return a.duration;
+  return a.duration + Math.max(0, Math.floor((nowMs - Date.parse(a.start)) / 1000));
+}
+
 export async function currentStatus(tz: string, ctx: Ctx = defaultContext()): Promise<CurrentStatus> {
   const [data, names] = await Promise.all([
     ctx.api.get<ActivitiesDto>("/api/activities"),
     ctx.types.typeNameById(),
   ]);
   const running = (data.activities ?? []).filter((a) => a.status === "RUNNING" || a.status === "PAUSED");
+  const nowMs = Date.now();
   return {
     status: running.length === 0 ? "idle" : "active",
-    now: unixToLocal(Date.now() / 1000, tz),
+    now: unixToLocal(nowMs / 1000, tz),
     timezone: tz,
     active: running.map((a) => {
+      const seconds = elapsedSeconds(a, nowMs);
       const entry: ActiveActivity = {
         activity: names.get(a.typeId) ?? a.typeId,
         id: a.id,
+        type_id: a.typeId,
         status: a.status as "RUNNING" | "PAUSED",
-        elapsed: formatDuration(a.duration),
-        seconds: a.duration,
+        elapsed: formatDuration(seconds),
+        seconds,
       };
       if (a.start) entry.started = unixToLocal(Date.parse(a.start) / 1000, tz);
       if (a.comment) entry.comment = a.comment;
@@ -100,8 +114,8 @@ function statusForMcp(s: CurrentStatus): unknown {
   };
 }
 
-async function mcpStatus(timezone?: string): Promise<unknown> {
-  const ctx = defaultContext();
+/** What get_current_status returns: the status in the user's timezone, shaped for the model. */
+async function mcpStatus(timezone: string | undefined, ctx: Ctx): Promise<unknown> {
   return statusForMcp(await currentStatus(await ctx.timezone.effectiveTimezone(timezone), ctx));
 }
 
@@ -196,7 +210,7 @@ async function resolveType(
 /* --- write operations -------------------------------------------------------
  * Exposed on the library client as well as the MCP tools: the sequencing here
  * (which activity is meant, how `at` maps to the backend's ?time=, and above
- * all update's read-modify-write) is exactly what an embedder should not have
+ * all update's field-level edits) is exactly what an embedder should not have
  * to re-derive against a raw HTTP client. */
 
 export interface StartArgs {
@@ -243,6 +257,7 @@ export interface StopArgs {
 export interface StoppedActivity {
   activity: string;
   activity_id: string;
+  type_id: string;
   tracked: string;
   seconds: number;
 }
@@ -263,6 +278,7 @@ export async function stopActivity(args: StopArgs = {}, ctx: Ctx = defaultContex
   return {
     activity: names.get(activity.typeId) ?? activity.typeId,
     activity_id: activity.id,
+    type_id: activity.typeId,
     tracked: formatDuration(seconds),
     seconds,
   };
@@ -369,50 +385,144 @@ export interface UpdatedActivity {
 /**
  * Change an entry's comment/tags without touching its tracked time.
  *
- * The backend PUT replaces the whole activity and soft-deletes any interval
- * missing from the payload, so this reads the record, edits only the requested
- * fields, and writes it back verbatim. Hand-rolling a PUT against the raw
- * client is how you silently destroy an entry's intervals.
+ * Uses the backend's field-level PATCH endpoints. The full-activity PUT is
+ * deliberately not used: it soft-deletes any interval missing from the payload,
+ * so a read-modify-write races any phone that changes the entry in between.
  */
 export async function updateActivity(args: UpdateArgs, ctx: Ctx = defaultContext()): Promise<UpdatedActivity> {
   if (args.comment === undefined && args.tags === undefined) {
     throw new UsageError("Nothing to update — provide comment and/or tags.");
   }
-  const activity = await ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`);
-  if (args.comment !== undefined) activity.comment = args.comment;
-  if (args.tags !== undefined) activity.tags = args.tags;
-  await ctx.api.put(`/api/activities/${args.activity_id}`, activity);
+  if (args.comment !== undefined) {
+    await ctx.api.patch(`/api/activities/${args.activity_id}/comment`, { comment: args.comment });
+  }
+  if (args.tags !== undefined) {
+    await ctx.api.patch(`/api/activities/${args.activity_id}/tags`, { tags: args.tags });
+  }
   const [updated, names] = await Promise.all([
     ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`),
     ctx.types.typeNameById(),
   ]);
+  const seconds = elapsedSeconds(updated, Date.now());
   const result: UpdatedActivity = {
     activity: names.get(updated.typeId) ?? updated.typeId,
     activity_id: updated.id,
     status: updated.status,
-    tracked: formatDuration(updated.duration),
-    seconds: updated.duration,
+    tracked: formatDuration(seconds),
+    seconds,
   };
   if (updated.comment) result.comment = updated.comment;
   if (updated.tags && updated.tags.length > 0) result.tags = updated.tags;
   return result;
 }
 
-export function registerActivityTools(server: McpServer): void {
+export interface IntervalTimeArgs {
+  /** Owning activity, from list_intervals. */
+  activity_id: string;
+  /** The entry, from list_intervals. */
+  interval_id: string;
+  /** New start: "yyyy-MM-dd HH:mm" in `timezone`, or "HH:mm" on the day the entry starts. Unchanged when omitted. */
+  from?: string;
+  /** New end: "yyyy-MM-dd HH:mm", or "HH:mm" on the day the entry ends. Unchanged when omitted. */
+  to?: string;
+  timezone?: string;
+}
+
+export interface MovedInterval {
+  activity: string;
+  activity_id: string;
+  interval_id: string;
+  type_id: string;
+  /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`, after the change. */
+  from: string;
+  to: string;
+  /** The same, before it. */
+  was_from: string;
+  was_to: string;
+  timezone: string;
+  duration: string;
+  seconds: number;
+}
+
+/**
+ * Move one past entry (interval) to new times. Only that interval changes: the activity's comment,
+ * tags and other intervals stay, and so does its type. The stretch a timer is running now is not
+ * an interval, so it cannot be moved here.
+ */
+export async function updateIntervalTime(args: IntervalTimeArgs, ctx: Ctx = defaultContext()): Promise<MovedInterval> {
+  if (!args.from?.trim() && !args.to?.trim()) {
+    throw new UsageError("Nothing to change — provide the new `from`, `to`, or both.");
+  }
+  const tz = await ctx.timezone.effectiveTimezone(args.timezone);
+  const activityPath = `/api/activities/${encodeURIComponent(args.activity_id)}`;
+  const activity = await ctx.api.get<ActivityDto>(activityPath);
+  const interval = activity.intervals?.find((i) => i.id === args.interval_id);
+  if (!interval) {
+    throw new UsageError("That entry is not part of this activity (any more) — call list_intervals for current ids.");
+  }
+  // "HH:mm" alone means on the entry's own day, in the user's timezone
+  const at = (value: string, unixSeconds: number) =>
+    /^\d{1,2}:\d{2}$/.test(value.trim())
+      ? wallTimeToUtc(`${unixToLocal(unixSeconds, tz).slice(0, 10)} ${value.trim().padStart(5, "0")}`, tz)
+      : wallTimeToUtc(value, tz);
+  const start = args.from?.trim() ? at(args.from, interval.from) : new Date(interval.from * 1000);
+  const finish = args.to?.trim() ? at(args.to, interval.to) : new Date(interval.to * 1000);
+  if (finish.getTime() <= start.getTime()) {
+    throw new UsageError("The entry would end before it starts — `to` must be after `from`.");
+  }
+  if (finish.getTime() > Date.now()) {
+    throw new UsageError("An entry cannot end in the future.");
+  }
+  // a typeId other than the activity's would change the activity's type: always send the current one
+  await ctx.api.put(`${activityPath}/intervals/${encodeURIComponent(args.interval_id)}`, {
+    id: args.interval_id,
+    activityId: args.activity_id,
+    typeId: activity.typeId,
+    start: toServerDateTime(start),
+    finish: toServerDateTime(finish),
+  });
+  const names = await ctx.types.typeNameById();
+  const seconds = (finish.getTime() - start.getTime()) / 1000;
+  return {
+    activity: names.get(activity.typeId) ?? activity.typeId,
+    activity_id: args.activity_id,
+    interval_id: args.interval_id,
+    type_id: activity.typeId,
+    from: unixToLocal(start.getTime() / 1000, tz),
+    to: unixToLocal(finish.getTime() / 1000, tz),
+    was_from: unixToLocal(interval.from, tz),
+    was_to: unixToLocal(interval.to, tz),
+    timezone: tz,
+    duration: formatDuration(seconds),
+    seconds,
+  };
+}
+
+/** get_current_status, plus, unless `write` is false, the tools that change timers and entries. */
+export function registerActivityTools(
+  server: McpServer,
+  ctx: Ctx = defaultContext(),
+  { write = true }: { write?: boolean } = {}
+): void {
   server.registerTool(
     "get_current_status",
     {
+      title: "Current status",
       description: "Show currently running or paused activities with elapsed time.",
       inputSchema: {
         timezone: z.string().optional().describe("IANA timezone for displayed times (default: user's timezone)"),
       },
+      annotations: READS,
     },
-    withErrors(async ({ timezone }) => textResult(await mcpStatus(timezone)))
+    withErrors(async ({ timezone }) => textResult(await mcpStatus(timezone, ctx)))
   );
+
+  if (!write) return;
 
   server.registerTool(
     "start_activity",
     {
+      title: "Start timer",
       description:
         "Start tracking an activity by type name (fuzzy matched, see list_activity_types) or type_id. " +
         "Optionally backdate the start with `at` (wall-clock) or started_minutes_ago.",
@@ -426,16 +536,18 @@ export function registerActivityTools(server: McpServer): void {
         started_minutes_ago: z.number().min(0).optional().describe("Backdate the start by N minutes (alternative to `at`)"),
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const started = await startActivity(args);
-      return textResult({ started: started.activity, status: await mcpStatus(started.timezone) });
+      const started = await startActivity(args, ctx);
+      return textResult({ started: started.activity, status: await mcpStatus(started.timezone, ctx) });
     })
   );
 
   server.registerTool(
     "stop_activity",
     {
+      title: "Stop timer",
       description:
         "Stop a running or paused activity. type_name may be omitted when exactly one activity is active. " +
         "Optionally backdate the stop with `at` (wall-clock) or stopped_minutes_ago.",
@@ -449,9 +561,10 @@ export function registerActivityTools(server: McpServer): void {
         stopped_minutes_ago: z.number().min(0).optional().describe("Backdate the stop by N minutes (alternative to `at`)"),
         timezone: z.string().optional().describe("IANA timezone `at` is given in (default: user's timezone)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const stopped = await stopActivity(args);
+      const stopped = await stopActivity(args, ctx);
       return textResult({ stopped: stopped.activity, tracked: stopped.tracked });
     })
   );
@@ -459,15 +572,17 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "pause_resume_activity",
     {
+      title: "Pause or resume timer",
       description: "Pause a running activity or resume a paused one.",
       inputSchema: {
         action: z.enum(["pause", "resume"]),
         type_name: z.string().optional().describe("Which activity (needed only if several match)"),
         activity_id: z.string().optional().describe("Exact activity id from get_current_status (internal — never show ids to the user)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const result = await pauseResumeActivity(args);
+      const result = await pauseResumeActivity(args, ctx);
       return textResult({ [args.action === "pause" ? "paused" : "resumed"]: result.activity });
     })
   );
@@ -475,6 +590,7 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "log_interval",
     {
+      title: "Log time entry",
       description:
         "Retroactively log a completed time entry for an activity type. " +
         "Times are wall-clock in the user's timezone, format \"yyyy-MM-dd HH:mm\".",
@@ -487,9 +603,10 @@ export function registerActivityTools(server: McpServer): void {
         tags: z.array(z.string()).optional(),
         timezone: z.string().optional().describe("IANA timezone the times are given in (default: user's timezone)"),
       },
+      annotations: ADDS,
     },
     withErrors(async (args) => {
-      const logged = await logInterval(args);
+      const logged = await logInterval(args, ctx);
       return textResult({
         logged: logged.activity,
         from: `${logged.from} (${logged.timezone})`,
@@ -502,8 +619,35 @@ export function registerActivityTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "update_interval",
+    {
+      title: "Change entry times",
+      description:
+        "Change when a past time entry started and/or ended. Only that entry's times change: its comment, tags and type " +
+        "stay, and so do the activity's other entries. Get interval_id (the entry's id) and activity_id from list_intervals. " +
+        "Times are wall-clock in the user's timezone: \"yyyy-MM-dd HH:mm\", or \"HH:mm\" for the entry's own day. " +
+        "A timer that is running now has no entry for its current stretch yet; stop it first (stop_activity can backdate). " +
+        "The stretches of a paused timer are entries like any other and can be moved; a running timer's current stretch " +
+        "becomes one once it is paused or stopped.",
+      inputSchema: {
+        activity_id: z.string().describe("activity_id of the entry from list_intervals (internal — never show ids to the user)"),
+        interval_id: z.string().describe("id of the entry from list_intervals (internal — never show ids to the user)"),
+        from: z.string().optional().describe("New start, \"yyyy-MM-dd HH:mm\" or \"HH:mm\"; unchanged when omitted"),
+        to: z.string().optional().describe("New end, \"yyyy-MM-dd HH:mm\" or \"HH:mm\"; unchanged when omitted"),
+        timezone: z.string().optional().describe("IANA timezone of the times (default: the user's)"),
+      },
+      annotations: REPLACES,
+    },
+    withErrors(async (args) => {
+      const moved = await updateIntervalTime(args, ctx);
+      return textResult({ moved: moved.activity, from: moved.from, to: moved.to, timezone: moved.timezone, duration: moved.duration });
+    })
+  );
+
+  server.registerTool(
     "update_activity",
     {
+      title: "Update comment or tags",
       description:
         "Update the comment and/or tags of an existing entry (running, paused, or stopped) without changing its tracked time. " +
         "Use this instead of logging a new entry when the user wants to annotate, describe, or re-tag something already tracked. " +
@@ -518,9 +662,10 @@ export function registerActivityTools(server: McpServer): void {
           .optional()
           .describe("Full new tag list — replaces existing tags (include current tags to keep them); [] clears them"),
       },
+      annotations: REPLACES,
     },
     withErrors(async (args) => {
-      const updated = await updateActivity(args);
+      const updated = await updateActivity(args, ctx);
       return textResult(
         compact({
           updated: updated.activity,

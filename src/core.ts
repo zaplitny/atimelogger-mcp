@@ -71,7 +71,7 @@ export { UsageError, NetworkError } from "./errors.js";
  *
  * Writes are here rather than left to `api` on purpose: the sequencing they
  * encode — resolving which activity is meant, mapping backdating onto the
- * backend's `?time=`, and `update`'s read-modify-write (a raw PUT soft-deletes
+ * backend's `?time=`, and `update`'s field-level PATCHes (a raw PUT soft-deletes
  * every interval missing from the payload) — is not something a caller should
  * re-derive. Unlike the CLI, which stays read-only because unattended shell
  * retries are hazardous, an embedder is writing a program and gets the tested

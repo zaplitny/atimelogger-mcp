@@ -10,6 +10,9 @@ export function formatDuration(seconds: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+/** An activity type's color as the apps store it (0xRRGGBB) to "#rrggbb". */
+export const formatColor = (color: number): string => "#" + (color & 0xffffff).toString(16).padStart(6, "0");
+
 /** Recursively remove null/undefined/empty-array/empty-string values for compact output. */
 export function compact<T>(value: T): T {
   if (Array.isArray(value)) {

@@ -1,16 +1,19 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { textResult, withErrors } from "../errors.js";
-import { loadConfig } from "../config.js";
+import { READS } from "./annotations.js";
+import { docsBaseUrl } from "../config.js";
 import { ttlCache, ttlCacheBy } from "../ttl-cache.js";
 
 // Public help site — unauthenticated, a different host than the API (baseUrl).
-const { docsUrl } = loadConfig();
+const docsUrl = docsBaseUrl();
 
 export interface HelpPage {
   slug: string;
   title: string;
   summary: string;
+  /** Which app the page describes. Absent on older indexes. */
+  platform?: "ios" | "android";
 }
 
 export interface HelpIndex {
@@ -55,17 +58,31 @@ export const helpIndex = ttlCache(
 );
 
 // Screenshots and layout markup mean nothing over MCP — keep only the text.
-function normalize(md: string): string {
-  return md
+// `dir` is the directory part of the page's own slug ("android/" or ""):
+// cross-references inside a page are relative to it, so `sync.md` inside
+// android/pomodoro.md means android/sync. Left bare, resolveTopic() would
+// match the unprefixed slug first and silently serve the iOS page instead.
+function normalize(md: string, dir = ""): string {
+  const text = md
     .replace(/<figure>[\s\S]*?<\/figure>/g, "")
     .replace(/&#x20;/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  if (!dir) return text;
+  // skip absolute, root-relative and pure-anchor targets; keep any #fragment
+  return text.replace(
+    /\]\((?!https?:|\/|#)([^)#\s]+\.md)(#[^)\s]*)?\)/g,
+    (_match, file: string, hash = "") => `](${dir}${file}${hash})`
+  );
 }
 
 const helpPage = ttlCacheBy(
   TTL_MS,
-  async (slug: string) => normalize(await fetchDocs(`${slug}.md`)),
+  async (slug: string) => {
+    const cut = slug.lastIndexOf("/");
+    const dir = cut === -1 ? "" : slug.slice(0, cut + 1);
+    return normalize(await fetchDocs(`${slug}.md`), dir);
+  },
   { staleOnError: true }
 );
 
@@ -103,9 +120,10 @@ export function registerDocTools(server: McpServer): void {
   server.registerTool(
     "app_help",
     {
+      title: "App help",
       description:
         "Official ATimeLogger app documentation. Use it to answer any question about how the app works, " +
-        "or how to do in the app what these tools cannot (edit entry times, delete records, goals, widgets, " +
+        "or how to do in the app what these tools cannot (delete records, goals, widgets, " +
         "CSV export, sync, backups, Pomodoro, Premium features). Call with no arguments for the table of " +
         "contents (its note covers platform applicability), then again with `topics` to fetch the relevant " +
         "pages — answer from the docs, not from memory. Cross-references like `sync.md` inside a page point " +
@@ -118,6 +136,7 @@ export function registerDocTools(server: McpServer): void {
             "Topic slugs from the table of contents (fuzzy matched against slug and title). Omit to get the table of contents."
           ),
       },
+      annotations: READS,
     },
     withErrors(async ({ topics }) => {
       if (!topics || topics.length === 0) {

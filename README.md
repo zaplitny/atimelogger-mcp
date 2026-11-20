@@ -73,13 +73,15 @@ No token yet? The server also starts without `ATL_TOKEN` in **docs-only mode**: 
 | Tool | Purpose |
 |---|---|
 | `get_current_status` | Running/paused activities with elapsed time |
-| `list_activity_types` | Activity type names as a group tree (source of names for other tools) |
+| `list_activity_types` | Activity type names as a group tree (source of names for other tools), with each type's color and icon name; `include_archived` adds the archived ones |
 | `start_activity` | Start by type name; optional backdating (`at` wall-clock time or `started_minutes_ago`) |
 | `stop_activity` | Stop the active activity (name optional if only one is active); same backdating options |
 | `pause_resume_activity` | Pause or resume |
 | `log_interval` | Retroactively log a completed entry (wall-clock times, optional comment/tags) |
 | `update_activity` | Change the comment/tags of an existing entry (running or past) without touching its times |
-| `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates) |
+| `update_interval` | Move a past entry's start and/or end (wall-clock times, or `HH:mm` on the entry's own day); only that entry changes, its comment, tags and type stay |
+| `archive_activity_type` | Archive a type or group the user no longer uses, or restore an archived one (`restore`). Archived types cannot be started or logged, but their history stays in reports |
+| `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates), with each type's color and icon name |
 | `list_intervals` | Raw history grouped by day, paged, max 100-day range |
 | `app_help` | Official app documentation ([atimelogger.pro/docs](https://atimelogger.pro/docs/)) — the assistant looks up how app features work (goals, widgets, sync, export, …) instead of guessing |
 
@@ -105,13 +107,17 @@ Things you can say to your assistant once the server is registered:
 
 > "Add a note to the current timer: reviewing the Q3 report" · "Tag this morning's Work session with 'client-x'" · "Update yesterday's meeting entry — it was the architecture sync"
 
+**Fixing entry times**
+
+> "My run this morning actually started at 7:10" · "Yesterday's meeting ended at 15:30, not 16:00" · "Move the paused Reading timer's start to 20:45"
+
 **Reports & history**
 
 > "Where did my week go?" · "How much did I work in June, broken down by week?" · "Compare my sleep this month vs last month" · "Show everything I tracked today" · "Which day last week had the most Development time?"
 
 **Learning the app** — answered from the official documentation rather than guesswork:
 
-> "How do goals work?" · "Why isn't my sync picking up yesterday's entries?" · "What's the difference between a group and a type?" · "Can I export to CSV?" · "How do I edit an entry's times?"
+> "How do goals work?" · "Why isn't my sync picking up yesterday's entries?" · "What's the difference between a group and a type?" · "Can I export to CSV?" · "How do I delete an entry?"
 
 **Combinations** — the assistant chains tools on its own:
 
@@ -160,7 +166,7 @@ await atl.api.get("/api/…");                        // escape hatch for anythi
 
 Prefer `clientFromEnv()` over hand-rolling `createClient({ token: process.env.ATL_TOKEN })` — the latter ignores `ATL_BASE_URL` and would silently target production. Unlike the MCP server and the CLI, it throws rather than exiting the host process when no token is configured.
 
-Writes are part of the client rather than something you assemble against `api`, because the sequencing matters: `update` does a read-modify-write, since a raw `PUT` soft-deletes every interval missing from the payload and would silently destroy the entry's tracked time. (The CLI stays read-only for a different reason — unattended shell retries, not programs.)
+Writes are part of the client rather than something you assemble against `api`, because the sequencing matters: `update` edits the comment and tags through their own endpoints, since a raw `PUT` soft-deletes every interval missing from the payload and would silently destroy the entry's tracked time. (The CLI stays read-only for a different reason — unattended shell retries, not programs.)
 
 Results are fully typed (`CurrentStatus`, `TimeReport`, `IntervalsPage`, `StartedActivity`, …), and every field is present unless its type marks it optional — `days`, `active` and `by_type` are empty arrays rather than missing keys, so destructuring is safe on empty results. Durations come as both a humanized string and raw `seconds`. Errors are typed too: `UsageError` (bad arguments or an unresolvable type name), `ApiError` (the server answered with a failure, carries `.status`), `NetworkError` (the request never arrived, keeps the original as `.cause`).
 
@@ -287,5 +293,6 @@ Notes:
 ## Limitations
 
 - `start_activity` cannot attach a comment (the underlying start endpoint takes only a type and time); add one afterwards with `update_activity`, or use `log_interval` for retroactive entries with comments/tags.
-- Only comments and tags of existing entries can be edited (`update_activity`); interval times cannot be changed and entries cannot be deleted — use the ATimeLogger app for that (the assistant can explain how via `app_help`).
+- Existing entries can get a new comment or tags (`update_activity`) and new start/end times (`update_interval`), but cannot be deleted — use the ATimeLogger app for that (the assistant can explain how via `app_help`).
+- A running timer's current stretch is not an entry yet, so its start cannot be moved; pause or stop the timer first (`stop_activity` can backdate the stop). A paused timer's stretches are entries like any other.
 - History requests are capped at 100 days by the backend.

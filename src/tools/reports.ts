@@ -2,8 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defaultContext, type Ctx } from "../context.js";
 import { PERIOD_WORDS, resolveRange, rangeDays, unixToLocal, type DateRange, type PeriodWord } from "../periods.js";
-import { formatDuration, compact } from "../format.js";
+import { formatColor, formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
+import { READS } from "./annotations.js";
+import type { ActivityTypeDto } from "../types-cache.js";
 
 const rangeSchema = {
   period: z
@@ -41,21 +43,27 @@ export interface TypeTotal {
   type: string;
   duration: string;
   seconds: number;
+  /** The type's color, "#rrggbb", and its icon name, as the apps draw it (absent for a combination). */
+  color?: string;
+  icon?: string;
   children?: TypeTotal[];
 }
 
-function shapeStatItems(items: StatItem[] | undefined, names: Map<string, string>): TypeTotal[] {
+function shapeStatItems(items: StatItem[] | undefined, types: Map<string, ActivityTypeDto>): TypeTotal[] {
   if (!items) return [];
   return items
     .slice()
     .sort((a, b) => b.duration - a.duration)
     .map((item) => {
       const node: TypeTotal = {
-        type: item.types.map((id) => names.get(id) ?? id).join(" + "),
+        type: item.types.map((id) => types.get(id)?.name ?? id).join(" + "),
         duration: formatDuration(item.duration),
         seconds: item.duration,
       };
-      const children = shapeStatItems(item.children, names);
+      const type = item.types.length === 1 ? types.get(item.types[0]) : undefined;
+      if (typeof type?.color === "number") node.color = formatColor(type.color);
+      if (type?.imageId) node.icon = type.imageId;
+      const children = shapeStatItems(item.children, types);
       if (children.length > 0) node.children = children;
       return node;
     });
@@ -105,6 +113,8 @@ export interface PeriodTotal {
   period: string;
   duration: string;
   seconds: number;
+  /** Where the bucket's time went, shaped like the report's own `by_type`. */
+  by_type: TypeTotal[];
 }
 
 export interface TimeReport {
@@ -122,7 +132,7 @@ export interface IntervalEntry {
   type: string;
   /** Interval id. */
   id: string;
-  /** Owning activity — pass to update_activity / PUT /api/activities/{id}. */
+  /** Owning activity — pass to update_activity. */
   activity_id?: string;
   /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`. */
   from: string;
@@ -148,36 +158,43 @@ export interface IntervalsPage {
   has_more: boolean;
 }
 
+/** The type and tag filters as the statistics and history endpoints take them: names resolved (groups and archived types too), empty ones left out. */
+async function filters(args: ReportArgs, ctx: Ctx): Promise<{ types?: string[]; tags?: string[] }> {
+  const resolved = await ctx.types.resolveTypeNames(args.type_names, { allowGroups: true, includeArchived: true });
+  const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
+  return {
+    types: types.length > 0 ? types : undefined,
+    tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
+  };
+}
+
 export async function timeReport(
   args: ReportArgs & { group_by?: "DAY" | "WEEK" | "MONTH" },
   ctx: Ctx = defaultContext()
 ): Promise<TimeReport> {
   const tz = await ctx.timezone.effectiveTimezone(args.timezone);
   const range = resolveRange(args, tz);
-  const [resolved, names] = await Promise.all([
-    ctx.types.resolveTypeNames(args.type_names, { allowGroups: true }),
-    ctx.types.typeNameById(),
-  ]);
-  const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
+  const [filter, all] = await Promise.all([filters(args, ctx), ctx.types.getTypes()]);
   const stats = await ctx.api.post<StatisticsDto>("/api/statistics", {
-    types: types.length > 0 ? types : undefined,
-    tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
+    ...filter,
     from: range.from,
     to: range.to,
     timezone: tz,
     groupBy: args.group_by ?? "DAY",
   });
   const seconds = stats.total?.info?.total ?? 0;
+  const byId = new Map(all.map((t) => [t.id, t]));
   return {
     range,
     timezone: tz,
     duration: formatDuration(seconds),
     seconds,
-    by_type: shapeStatItems(stats.total?.groupedStatistics, names),
+    by_type: shapeStatItems(stats.total?.groupedStatistics, byId),
     periods: (stats.periods ?? []).map((p) => ({
       period: p.title,
       duration: formatDuration(p.info?.total ?? 0),
       seconds: p.info?.total ?? 0,
+      by_type: shapeStatItems(p.groupedStatistics, byId),
     })),
   };
 }
@@ -191,20 +208,10 @@ export async function listIntervals(
   if (rangeDays(range) > 100) {
     throw new UsageError("Date range too large — the history API allows at most 100 days per request.");
   }
-  const [resolved, names] = await Promise.all([
-    ctx.types.resolveTypeNames(args.type_names, { allowGroups: true }),
-    ctx.types.typeNameById(),
-  ]);
-  const types = [...(resolved ?? []), ...(args.type_ids ?? [])];
+  const [filter, names] = await Promise.all([filters(args, ctx), ctx.types.typeNameById()]);
   const result = await ctx.api.post<PageDto<DayHistory>>(
     `/api/intervals?page=${args.page ?? 0}&size=${args.size ?? 20}`,
-    {
-      types: types.length > 0 ? types : undefined,
-      tags: args.tags && args.tags.length > 0 ? args.tags : undefined,
-      from: range.from,
-      to: range.to,
-      timezone: tz,
-    }
+    { ...filter, from: range.from, to: range.to, timezone: tz }
   );
   return {
     range,
@@ -273,24 +280,27 @@ function intervalsForMcp(p: IntervalsPage): unknown {
   });
 }
 
-export function registerReportTools(server: McpServer): void {
+export function registerReportTools(server: McpServer, ctx: Ctx = defaultContext()): void {
   server.registerTool(
     "time_report",
     {
+      title: "Time report",
       description:
         "Aggregated time statistics per activity type for a date range. " +
-        "Returns overall totals plus per-DAY/WEEK/MONTH buckets.",
+        "Returns overall totals plus per-DAY/WEEK/MONTH buckets, and each type's color and icon name.",
       inputSchema: {
         ...rangeSchema,
         group_by: z.enum(["DAY", "WEEK", "MONTH"]).optional().describe("Bucket size for the periods breakdown (default DAY)"),
       },
+      annotations: READS,
     },
-    withErrors(async (args) => textResult(reportForMcp(await timeReport(args))))
+    withErrors(async (args) => textResult(reportForMcp(await timeReport(args, ctx))))
   );
 
   server.registerTool(
     "list_intervals",
     {
+      title: "Time entries",
       description:
         "List raw time entries (intervals) grouped by day for a date range (max 100 days). " +
         "Paged by day — use `page` for older days.",
@@ -299,7 +309,8 @@ export function registerReportTools(server: McpServer): void {
         page: z.number().int().min(0).optional().describe("Page number, 0-based (default 0)"),
         size: z.number().int().min(1).max(50).optional().describe("Days per page (default 20, max 50)"),
       },
+      annotations: READS,
     },
-    withErrors(async (args) => textResult(intervalsForMcp(await listIntervals(args))))
+    withErrors(async (args) => textResult(intervalsForMcp(await listIntervals(args, ctx))))
   );
 }

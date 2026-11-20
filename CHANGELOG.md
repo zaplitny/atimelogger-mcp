@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - Unreleased
+
+### Fixed
+
+- **`update_activity` could delete tracked time.** It read the entry and wrote the whole record back, and the backend drops every interval missing from such a write, so an interval another device added in between (a pause and resume on the phone, say) was lost. It now changes the comment and the tags through their own endpoints and never rewrites the entry. The library's `update` has the same fix.
+- `get_current_status` showed a running timer's elapsed time without the stretch still running, often "0s" for a timer started minutes ago. That stretch is now counted, and so it is in `update_activity`'s `tracked`.
+- `list_activity_types` with `include_archived` never showed an archived type, because the backend leaves them out unless asked. The type list now asks for them: history and reports name archived types too, and report filters (`type_names`) may name one. Starting or logging an archived type is refused, by id as well as by name.
+- A 403 from the backend gave the same "generate a new Personal Access Token" advice as a 401, which cannot help with a 403. It now says the call is not allowed.
+
+### Added
+
+- `update_interval`: moves a past entry's start and/or end. Only that entry changes: its comment, tags and type stay, and so do the activity's other entries. Times are wall-clock in the user's timezone, or `HH:mm` on the entry's own day. A paused timer's stretches can be moved like any other entry; a running timer's current stretch can once the timer is paused or stopped.
+- `archive_activity_type`: archives an activity type or group the user no longer uses, or restores an archived one with `restore`. Only that node changes, as in the apps: the types in an archived group stay as they are. Archived types keep their history and still count in reports. Company categories are refused.
+- `time_report` and `list_activity_types` give each type's `color` (`"#rrggbb"`) and `icon` (its icon name in the apps).
+- Every tool has a `title` and states `readOnlyHint`, `destructiveHint` and `openWorldHint`. `update_activity`, `update_interval` and `archive_activity_type` are marked destructive: they replace a comment, a tag list or an entry's times, or take a type out of use.
+- Library: each of `report()`'s periods has its own `by_type`; `status()` entries and `stop()` carry `type_id`; `TypesCache` has `invalidate()`.
+
+### Changed
+
+- The server instructions point the model at `update_interval` for fixing times and at `archive_activity_type`, and no longer say entry times cannot be edited. Entries still cannot be deleted through the server.
+- A type looked up by name or id that is missing from a type list read more than 5 seconds ago makes the list be read again, once, in case the user has just added it in the app.
+- Backend requests time out after 30 seconds instead of holding a tool call open.
+- Docs-only mode (no `ATL_TOKEN`) says the user needs a personal access token, without naming a plan.
+- The MCP server is built by `createAtlServer` (`src/server.ts`), and tool registration takes the account context explicitly.
+
 ## [0.2.0] - 2026-08-20
 
 ### Added
@@ -63,6 +88,7 @@ First public release on npm as [`atimelogger-mcp`](https://www.npmjs.com/package
 - `npm run setup` script: verifies a pasted token and prints ready-to-use registration snippets.
 - npm packaging (`npx atimelogger-mcp`) and README guides for Claude Code, Claude Desktop, and a self-hosted remote endpoint (Custom Connector) behind Docker + nginx.
 
+[0.3.0]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zaplitny/atimelogger-mcp/compare/v0.1.0...v0.1.1

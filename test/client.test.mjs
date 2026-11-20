@@ -19,12 +19,12 @@ test("sends the bearer token and only sets a content type when there is a body",
   assert.deepEqual(calls[1].body, { x: 1 });
 });
 
-test("all four verbs reach the right method and path", async () => {
+test("all five verbs reach the right method and path", async () => {
   const { api: a, calls } = api({});
-  await Promise.all([a.get("/api/a"), a.post("/api/b"), a.put("/api/c", {}), a.delete("/api/d")]);
+  await Promise.all([a.get("/api/a"), a.post("/api/b"), a.put("/api/c", {}), a.patch("/api/e", {}), a.delete("/api/d")]);
   assert.deepEqual(
     calls.map((c) => `${c.method} ${c.path}`).sort(),
-    ["DELETE /api/d", "GET /api/a", "POST /api/b", "PUT /api/c"]
+    ["DELETE /api/d", "GET /api/a", "PATCH /api/e", "POST /api/b", "PUT /api/c"]
   );
 });
 
@@ -48,16 +48,38 @@ test("an empty response body resolves to undefined rather than throwing", async 
   assert.equal(await a.put("/api/activities/a1", {}), undefined);
 });
 
-test("401 and 403 become an ApiError pointing at token regeneration", async () => {
-  for (const status of [401, 403]) {
-    const { api: a } = api({ "/api/x": status });
-    await assert.rejects(a.get("/api/x"), (e) => {
-      assert.ok(e instanceof ApiError);
-      assert.equal(e.status, status);
-      assert.match(e.message, /Personal Access Token/);
-      return true;
+test("401 becomes an ApiError pointing at token regeneration", async () => {
+  const { api: a } = api({ "/api/x": 401 });
+  await assert.rejects(a.get("/api/x"), (e) => {
+    assert.ok(e instanceof ApiError);
+    assert.equal(e.status, 401);
+    assert.match(e.message, /Personal Access Token/);
+    return true;
+  });
+});
+
+test("403 says the call is not allowed instead of blaming the token", async () => {
+  const { api: a } = api({ "/api/x": 403 });
+  await assert.rejects(a.get("/api/x"), (e) => {
+    assert.ok(e instanceof ApiError);
+    assert.equal(e.status, 403);
+    assert.match(e.message, /not allowed/);
+    assert.doesNotMatch(e.message, /Personal Access Token/);
+    return true;
+  });
+});
+
+test("a request that hangs past the timeout is a NetworkError", async () => {
+  // the timeout's timer does not hold the event loop open, so the fake backend has to
+  const hang = (_url, init) => new Promise((_resolve, reject) => {
+    const keepAlive = setTimeout(() => {}, 5_000);
+    init.signal.addEventListener("abort", () => {
+      clearTimeout(keepAlive);
+      reject(init.signal.reason);
     });
-  }
+  });
+  const a = createApi({ token: "t", baseUrl: "https://mock.test", fetch: hang, timeoutMs: 20 });
+  await assert.rejects(a.get("/api/x"), NetworkError);
 });
 
 test("other failures become an ApiError carrying status and body", async () => {

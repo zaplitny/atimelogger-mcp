@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const read = (name) => JSON.parse(readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8"));
@@ -32,4 +33,18 @@ test("the export map resolves to files that exist and stays require()-able", () 
   for (const target of Object.values(entry)) {
     assert.ok(existsSync(fileURLToPath(new URL(`../${target}`, import.meta.url))), `${target} is missing`);
   }
+});
+
+test("the tarball holds only what src/ compiles to, besides the README, the license and package.json", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  // --ignore-scripts: list the build `npm test` just made instead of building again
+  const [pack] = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root, encoding: "utf8" }));
+  const sources = readdirSync(new URL("../src", import.meta.url), { recursive: true })
+    .filter((f) => f.endsWith(".ts"))
+    .map((f) => f.split("\\").join("/").replace(/\.ts$/, ""));
+  const expected = [
+    "LICENSE", "README.md", "package.json",
+    ...sources.flatMap((f) => [`dist/${f}.js`, `dist/${f}.d.ts`]),
+  ].sort();
+  assert.deepEqual(pack.files.map((f) => f.path).sort(), expected, "a file in the tarball that no source in src/ builds");
 });
