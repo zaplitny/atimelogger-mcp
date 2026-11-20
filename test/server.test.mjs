@@ -62,7 +62,8 @@ test("the tools act on the account they were given", async () => {
 
 test("the instructions point at update_interval for fixing times, and no longer say times cannot be edited", async () => {
   const { instructions } = await listTools({});
-  assert.match(instructions, /update_interval moves a past entry/);
+  assert.match(instructions, /update_interval moves an entry's start and\/or end/);
+  assert.match(instructions, /or when a running timer started/);
   assert.doesNotMatch(instructions, /times cannot be edited/i);
   assert.match(instructions, /Entries cannot be deleted/);
 });
@@ -71,6 +72,27 @@ test("update_interval tells the model that a paused timer's stretches can be mov
   const { tools } = await listTools({});
   const tool = tools.find((t) => t.name === "update_interval");
   assert.match(tool.description, /stretches of a paused timer are entries like any other and can be moved/);
+});
+
+test("update_interval can move a running timer's start, so interval_id is optional", async () => {
+  const { tools } = await listTools({});
+  const tool = tools.find((t) => t.name === "update_interval");
+  assert.match(tool.description, /when a running timer started/);
+  assert.match(tool.description, /stop_activity/, "and says how to end one in the past instead");
+  assert.deepEqual(tool.inputSchema.required, ["activity_id"]);
+});
+
+test("moving a running timer's start answers with when it now runs since", async () => {
+  const today = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const client = await connect({}, {
+    "GET /api/activities/a7": { id: "a7", typeId: "t1", status: "RUNNING", duration: 0, start: `${today}T00:20:00.000Z`, intervals: [] },
+    "PATCH /api/activities/a7/start": () => new Response(null, { status: 204 }),
+  });
+  const r = await client.callTool({ name: "update_interval", arguments: { activity_id: "a7", from: "00:15", timezone: "UTC" } });
+  await client.close();
+  const text = JSON.parse(r.content[0].text);
+  assert.deepEqual(Object.keys(text), ["moved", "running_since", "timezone", "elapsed"]);
+  assert.deepEqual([text.moved, text.running_since, text.timezone], ["Development", `${today} 00:15`, "UTC"]);
 });
 
 test("archive_activity_type comes with the write tools, and can be undone", async () => {
