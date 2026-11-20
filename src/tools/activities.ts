@@ -196,7 +196,7 @@ async function resolveType(
 /* --- write operations -------------------------------------------------------
  * Exposed on the library client as well as the MCP tools: the sequencing here
  * (which activity is meant, how `at` maps to the backend's ?time=, and above
- * all update's read-modify-write) is exactly what an embedder should not have
+ * all update's field-level edits) is exactly what an embedder should not have
  * to re-derive against a raw HTTP client. */
 
 export interface StartArgs {
@@ -369,19 +369,20 @@ export interface UpdatedActivity {
 /**
  * Change an entry's comment/tags without touching its tracked time.
  *
- * The backend PUT replaces the whole activity and soft-deletes any interval
- * missing from the payload, so this reads the record, edits only the requested
- * fields, and writes it back verbatim. Hand-rolling a PUT against the raw
- * client is how you silently destroy an entry's intervals.
+ * Uses the backend's field-level PATCH endpoints. The full-activity PUT is
+ * deliberately not used: it soft-deletes any interval missing from the payload,
+ * so a read-modify-write races any phone that changes the entry in between.
  */
 export async function updateActivity(args: UpdateArgs, ctx: Ctx = defaultContext()): Promise<UpdatedActivity> {
   if (args.comment === undefined && args.tags === undefined) {
     throw new UsageError("Nothing to update — provide comment and/or tags.");
   }
-  const activity = await ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`);
-  if (args.comment !== undefined) activity.comment = args.comment;
-  if (args.tags !== undefined) activity.tags = args.tags;
-  await ctx.api.put(`/api/activities/${args.activity_id}`, activity);
+  if (args.comment !== undefined) {
+    await ctx.api.patch(`/api/activities/${args.activity_id}/comment`, { comment: args.comment });
+  }
+  if (args.tags !== undefined) {
+    await ctx.api.patch(`/api/activities/${args.activity_id}/tags`, { tags: args.tags });
+  }
   const [updated, names] = await Promise.all([
     ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`),
     ctx.types.typeNameById(),

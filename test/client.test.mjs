@@ -19,12 +19,12 @@ test("sends the bearer token and only sets a content type when there is a body",
   assert.deepEqual(calls[1].body, { x: 1 });
 });
 
-test("all four verbs reach the right method and path", async () => {
+test("all five verbs reach the right method and path", async () => {
   const { api: a, calls } = api({});
-  await Promise.all([a.get("/api/a"), a.post("/api/b"), a.put("/api/c", {}), a.delete("/api/d")]);
+  await Promise.all([a.get("/api/a"), a.post("/api/b"), a.put("/api/c", {}), a.patch("/api/e", {}), a.delete("/api/d")]);
   assert.deepEqual(
     calls.map((c) => `${c.method} ${c.path}`).sort(),
-    ["DELETE /api/d", "GET /api/a", "POST /api/b", "PUT /api/c"]
+    ["DELETE /api/d", "GET /api/a", "PATCH /api/e", "POST /api/b", "PUT /api/c"]
   );
 });
 

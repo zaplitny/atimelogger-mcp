@@ -26,6 +26,7 @@ export interface Api {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
   put<T>(path: string, body?: unknown): Promise<T>;
+  patch<T>(path: string, body?: unknown): Promise<T>;
   delete<T>(path: string): Promise<T>;
 }
 
@@ -70,6 +71,7 @@ export function createApi(options: ApiOptions): Api {
     get: <T>(path: string) => request<T>("GET", path),
     post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
     put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
+    patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
     delete: <T>(path: string) => request<T>("DELETE", path),
   };
 }
@@ -93,7 +95,7 @@ function defaultApi(): Api {
             setupInstructions(config.baseUrl)
         );
       };
-      envApi = { get: refuse, post: refuse, put: refuse, delete: refuse };
+      envApi = { get: refuse, post: refuse, put: refuse, patch: refuse, delete: refuse };
     }
   }
   return envApi;
@@ -103,5 +105,6 @@ export const api: Api = {
   get: (path) => defaultApi().get(path),
   post: (path, body) => defaultApi().post(path, body),
   put: (path, body) => defaultApi().put(path, body),
+  patch: (path, body) => defaultApi().patch(path, body),
   delete: (path) => defaultApi().delete(path),
 };

@@ -160,42 +160,38 @@ test("logInterval rejects a backwards or empty range", async () => {
   await assert.rejects(logInterval({ ...bad, to: "2026-08-05 11:00" }, ctx), UsageError, "zero length");
 });
 
-test("updateActivity round-trips the record so intervals survive", async () => {
-  let stored = STORED();
-  const before = STORED();
+test("updateActivity patches only the comment and never PUTs the whole record", async () => {
   const { ctx, calls } = mockCtx({
-    "GET /api/activities/a1": () => stored,
-    "PUT /api/activities/a1": ({ body }) => { stored = body; return new Response("", { status: 200 }); },
+    "PATCH /api/activities/a1/comment": new Response(null, { status: 204 }),
+    "GET /api/activities/a1": () => ({ ...STORED(), comment: "edited" }),
   });
 
   const r = await updateActivity({ activity_id: "a1", comment: "edited" }, ctx);
 
-  assert.deepEqual(stored.intervals, before.intervals, "a naive PUT would soft-delete every interval");
-  assert.equal(stored.comment, "edited");
-  assert.deepEqual(stored.tags, before.tags, "tags untouched when not supplied");
-  assert.deepEqual(
-    calls.filter((c) => c.path === "/api/activities/a1").map((c) => c.method),
-    ["GET", "PUT", "GET"],
-    "read, modify, write, then re-read to report the stored state"
-  );
+  const writes = calls.filter((c) => c.method !== "GET");
+  assert.deepEqual(writes.map((c) => `${c.method} ${c.path}`), ["PATCH /api/activities/a1/comment"],
+    "a PUT would soft-delete every interval a phone added since the read");
+  assert.deepEqual(writes[0].body, { comment: "edited" });
   assert.equal(r.activity, "Development");
-  assert.equal(r.tracked, "2h");
+  assert.equal(r.comment, "edited");
+  assert.equal(r.tracked, "2h", "the result is re-read from the backend");
 });
 
-test("updateActivity replaces tags wholesale and can clear fields", async () => {
-  let stored = STORED();
-  const { ctx } = mockCtx({
-    "GET /api/activities/a1": () => stored,
-    "PUT /api/activities/a1": ({ body }) => { stored = body; return new Response("", { status: 200 }); },
+test("updateActivity sends the full tag list, and can clear both fields", async () => {
+  const { ctx, calls } = mockCtx({
+    "PATCH /api/activities/a1/comment": new Response(null, { status: 204 }),
+    "PATCH /api/activities/a1/tags": new Response(null, { status: 204 }),
+    "GET /api/activities/a1": STORED(),
   });
   await updateActivity({ activity_id: "a1", tags: ["one", "two"] }, ctx);
-  assert.deepEqual(stored.tags, ["one", "two"]);
-  assert.equal(stored.comment, "original", "comment survives a tags-only update");
-
   await updateActivity({ activity_id: "a1", comment: "", tags: [] }, ctx);
-  assert.equal(stored.comment, "");
-  assert.deepEqual(stored.tags, []);
-  assert.deepEqual(stored.intervals.length, 2, "clearing fields still preserves tracked time");
+
+  const writes = calls.filter((c) => c.method === "PATCH").map((c) => [c.path, c.body]);
+  assert.deepEqual(writes, [
+    ["/api/activities/a1/tags", { tags: ["one", "two"] }],
+    ["/api/activities/a1/comment", { comment: "" }],
+    ["/api/activities/a1/tags", { tags: [] }],
+  ]);
 });
 
 test("updateActivity with nothing to change is a UsageError", async () => {

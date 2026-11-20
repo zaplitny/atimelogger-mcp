@@ -160,7 +160,7 @@ await atl.api.get("/api/…");                        // escape hatch for anythi
 
 Prefer `clientFromEnv()` over hand-rolling `createClient({ token: process.env.ATL_TOKEN })` — the latter ignores `ATL_BASE_URL` and would silently target production. Unlike the MCP server and the CLI, it throws rather than exiting the host process when no token is configured.
 
-Writes are part of the client rather than something you assemble against `api`, because the sequencing matters: `update` does a read-modify-write, since a raw `PUT` soft-deletes every interval missing from the payload and would silently destroy the entry's tracked time. (The CLI stays read-only for a different reason — unattended shell retries, not programs.)
+Writes are part of the client rather than something you assemble against `api`, because the sequencing matters: `update` edits the comment and tags through their own endpoints, since a raw `PUT` soft-deletes every interval missing from the payload and would silently destroy the entry's tracked time. (The CLI stays read-only for a different reason — unattended shell retries, not programs.)
 
 Results are fully typed (`CurrentStatus`, `TimeReport`, `IntervalsPage`, `StartedActivity`, …), and every field is present unless its type marks it optional — `days`, `active` and `by_type` are empty arrays rather than missing keys, so destructuring is safe on empty results. Durations come as both a humanized string and raw `seconds`. Errors are typed too: `UsageError` (bad arguments or an unresolvable type name), `ApiError` (the server answered with a failure, carries `.status`), `NetworkError` (the request never arrived, keeps the original as `.cause`).
 

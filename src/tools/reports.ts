@@ -122,7 +122,7 @@ export interface IntervalEntry {
   type: string;
   /** Interval id. */
   id: string;
-  /** Owning activity — pass to update_activity / PUT /api/activities/{id}. */
+  /** Owning activity — pass to update_activity. */
   activity_id?: string;
   /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`. */
   from: string;
