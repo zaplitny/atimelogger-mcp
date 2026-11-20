@@ -2,9 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defaultContext, type Ctx } from "../context.js";
 import { PERIOD_WORDS, resolveRange, rangeDays, unixToLocal, type DateRange, type PeriodWord } from "../periods.js";
-import { formatDuration, compact } from "../format.js";
+import { formatColor, formatDuration, compact } from "../format.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
 import { READS } from "./annotations.js";
+import type { ActivityTypeDto } from "../types-cache.js";
 
 const rangeSchema = {
   period: z
@@ -42,21 +43,27 @@ export interface TypeTotal {
   type: string;
   duration: string;
   seconds: number;
+  /** The type's color, "#rrggbb", and its icon name, as the apps draw it (absent for a combination). */
+  color?: string;
+  icon?: string;
   children?: TypeTotal[];
 }
 
-function shapeStatItems(items: StatItem[] | undefined, names: Map<string, string>): TypeTotal[] {
+function shapeStatItems(items: StatItem[] | undefined, types: Map<string, ActivityTypeDto>): TypeTotal[] {
   if (!items) return [];
   return items
     .slice()
     .sort((a, b) => b.duration - a.duration)
     .map((item) => {
       const node: TypeTotal = {
-        type: item.types.map((id) => names.get(id) ?? id).join(" + "),
+        type: item.types.map((id) => types.get(id)?.name ?? id).join(" + "),
         duration: formatDuration(item.duration),
         seconds: item.duration,
       };
-      const children = shapeStatItems(item.children, names);
+      const type = item.types.length === 1 ? types.get(item.types[0]) : undefined;
+      if (typeof type?.color === "number") node.color = formatColor(type.color);
+      if (type?.imageId) node.icon = type.imageId;
+      const children = shapeStatItems(item.children, types);
       if (children.length > 0) node.children = children;
       return node;
     });
@@ -106,6 +113,8 @@ export interface PeriodTotal {
   period: string;
   duration: string;
   seconds: number;
+  /** Where the bucket's time went, shaped like the report's own `by_type`. */
+  by_type: TypeTotal[];
 }
 
 export interface TimeReport {
@@ -165,7 +174,7 @@ export async function timeReport(
 ): Promise<TimeReport> {
   const tz = await ctx.timezone.effectiveTimezone(args.timezone);
   const range = resolveRange(args, tz);
-  const [filter, names] = await Promise.all([filters(args, ctx), ctx.types.typeNameById()]);
+  const [filter, all] = await Promise.all([filters(args, ctx), ctx.types.getTypes()]);
   const stats = await ctx.api.post<StatisticsDto>("/api/statistics", {
     ...filter,
     from: range.from,
@@ -174,16 +183,18 @@ export async function timeReport(
     groupBy: args.group_by ?? "DAY",
   });
   const seconds = stats.total?.info?.total ?? 0;
+  const byId = new Map(all.map((t) => [t.id, t]));
   return {
     range,
     timezone: tz,
     duration: formatDuration(seconds),
     seconds,
-    by_type: shapeStatItems(stats.total?.groupedStatistics, names),
+    by_type: shapeStatItems(stats.total?.groupedStatistics, byId),
     periods: (stats.periods ?? []).map((p) => ({
       period: p.title,
       duration: formatDuration(p.info?.total ?? 0),
       seconds: p.info?.total ?? 0,
+      by_type: shapeStatItems(p.groupedStatistics, byId),
     })),
   };
 }
@@ -276,7 +287,7 @@ export function registerReportTools(server: McpServer, ctx: Ctx = defaultContext
       title: "Time report",
       description:
         "Aggregated time statistics per activity type for a date range. " +
-        "Returns overall totals plus per-DAY/WEEK/MONTH buckets.",
+        "Returns overall totals plus per-DAY/WEEK/MONTH buckets, and each type's color and icon name.",
       inputSchema: {
         ...rangeSchema,
         group_by: z.enum(["DAY", "WEEK", "MONTH"]).optional().describe("Bucket size for the periods breakdown (default DAY)"),

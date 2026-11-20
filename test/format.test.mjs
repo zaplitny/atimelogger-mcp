@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatDuration, compact } from "../dist/format.js";
+import { formatDuration, formatColor, compact } from "../dist/format.js";
 
 test("formatDuration: seconds below a minute", () => {
   assert.equal(formatDuration(0), "0s");
@@ -44,4 +44,12 @@ test("compact: leaves primitives alone", () => {
   assert.equal(compact("text"), "text");
   assert.equal(compact(5), 5);
   assert.equal(compact(null), null);
+});
+
+test("formatColor: the apps' 0xRRGGBB as #rrggbb, dropping any alpha byte", () => {
+  assert.equal(formatColor(0xf38725), "#f38725");
+  assert.equal(formatColor(0x00ff88), "#00ff88", "leading zeros are kept");
+  assert.equal(formatColor(0), "#000000");
+  assert.equal(formatColor(0xff417505), "#417505");
+  assert.equal(formatColor(-12613883), "#3f8705", "a signed ARGB int from Java");
 });

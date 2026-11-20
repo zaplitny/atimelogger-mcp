@@ -4,10 +4,15 @@ import type { ActivityTypeDto } from "../types-cache.js";
 import { defaultContext, type Ctx } from "../context.js";
 import { textResult, withErrors, UsageError } from "../errors.js";
 import { READS, TOGGLES } from "./annotations.js";
+import { formatColor } from "../format.js";
 
 export interface TypeNode {
   name: string;
   id: string;
+  /** "#rrggbb", as the apps draw it. */
+  color?: string;
+  /** The type's icon name as the apps know it, e.g. "mi_009"; absent when it has none. */
+  icon?: string;
   archived?: boolean;
   children?: TypeNode[];
 }
@@ -24,6 +29,8 @@ function buildTree(types: ActivityTypeDto[], includeArchived: boolean): TypeNode
   }
   const toNode = (t: ActivityTypeDto): TypeNode => {
     const node: TypeNode = { name: t.name, id: t.id };
+    if (typeof t.color === "number") node.color = formatColor(t.color);
+    if (t.imageId) node.icon = t.imageId;
     if (t.archived) node.archived = true;
     const children = byParent.get(t.id);
     if (children?.length) node.children = children.map(toNode);
@@ -90,7 +97,8 @@ export function registerTypeTools(
     {
       title: "Activity types",
       description:
-        "List the user's activity types as a tree (groups contain children): names plus internal ids. " +
+        "List the user's activity types as a tree (groups contain children): names plus internal ids, and each " +
+        "type's color and icon name as the apps show them. " +
         "Use the names when talking to the user; use the ids for exact targeting in other tools.",
       inputSchema: {
         include_archived: z.boolean().optional().describe("Include archived types (default false)"),

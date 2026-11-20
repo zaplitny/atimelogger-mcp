@@ -267,3 +267,12 @@ test("an archived type cannot be started or logged, even by id", async () => {
   await assert.rejects(logInterval({ type_id: "t4", from: "2026-08-05 09:00", to: "2026-08-05 10:00", timezone: "UTC" }, ctx), /"Retired" is archived/);
   assert.ok(!calls.some((c) => c.method === "POST"), "nothing was sent");
 });
+
+test("currentStatus and stopActivity carry the type id for exact targeting", async () => {
+  const { ctx } = mockCtx({
+    "/api/activities": { activities: [RUNNING] },
+    "POST /api/activities/stop/a1": { id: "a1", typeId: "t1", status: "STOPPED", duration: 3600 },
+  });
+  assert.equal((await currentStatus("UTC", ctx)).active[0].type_id, "t1");
+  assert.equal((await stopActivity({}, ctx)).type_id, "t1");
+});

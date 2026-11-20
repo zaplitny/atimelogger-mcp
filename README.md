@@ -73,7 +73,7 @@ No token yet? The server also starts without `ATL_TOKEN` in **docs-only mode**: 
 | Tool | Purpose |
 |---|---|
 | `get_current_status` | Running/paused activities with elapsed time |
-| `list_activity_types` | Activity type names as a group tree (source of names for other tools); `include_archived` adds the archived ones |
+| `list_activity_types` | Activity type names as a group tree (source of names for other tools), with each type's color and icon name; `include_archived` adds the archived ones |
 | `start_activity` | Start by type name; optional backdating (`at` wall-clock time or `started_minutes_ago`) |
 | `stop_activity` | Stop the active activity (name optional if only one is active); same backdating options |
 | `pause_resume_activity` | Pause or resume |
@@ -81,7 +81,7 @@ No token yet? The server also starts without `ATL_TOKEN` in **docs-only mode**: 
 | `update_activity` | Change the comment/tags of an existing entry (running or past) without touching its times |
 | `update_interval` | Move a past entry's start and/or end (wall-clock times, or `HH:mm` on the entry's own day); only that entry changes, its comment, tags and type stay |
 | `archive_activity_type` | Archive a type or group the user no longer uses, or restore an archived one (`restore`). Archived types cannot be started or logged, but their history stays in reports |
-| `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates) |
+| `time_report` | Aggregated per-type statistics for a period (`today`, `this_week`, `last_month`, … or explicit dates), with each type's color and icon name |
 | `list_intervals` | Raw history grouped by day, paged, max 100-day range |
 | `app_help` | Official app documentation ([atimelogger.pro/docs](https://atimelogger.pro/docs/)) — the assistant looks up how app features work (goals, widgets, sync, export, …) instead of guessing |
 

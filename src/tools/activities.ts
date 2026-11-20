@@ -35,6 +35,7 @@ export interface ActiveActivity {
   activity: string;
   /** Activity id — pass to update_activity / stop_activity. */
   id: string;
+  type_id: string;
   status: "RUNNING" | "PAUSED";
   /** Wall-clock "yyyy-MM-dd HH:mm" in `timezone`; absent for paused timers. */
   started?: string;
@@ -78,6 +79,7 @@ export async function currentStatus(tz: string, ctx: Ctx = defaultContext()): Pr
       const entry: ActiveActivity = {
         activity: names.get(a.typeId) ?? a.typeId,
         id: a.id,
+        type_id: a.typeId,
         status: a.status as "RUNNING" | "PAUSED",
         elapsed: formatDuration(seconds),
         seconds,
@@ -255,6 +257,7 @@ export interface StopArgs {
 export interface StoppedActivity {
   activity: string;
   activity_id: string;
+  type_id: string;
   tracked: string;
   seconds: number;
 }
@@ -275,6 +278,7 @@ export async function stopActivity(args: StopArgs = {}, ctx: Ctx = defaultContex
   return {
     activity: names.get(activity.typeId) ?? activity.typeId,
     activity_id: activity.id,
+    type_id: activity.typeId,
     tracked: formatDuration(seconds),
     seconds,
   };

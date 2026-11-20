@@ -13,7 +13,10 @@ const STATS = {
       { types: ["t3"], duration: 1800 },
     ],
   },
-  periods: [{ title: "Aug 5", info: { total: 9000 } }, { title: "Aug 6", info: { total: 0 } }],
+  periods: [
+    { title: "Aug 5", info: { total: 9000 }, groupedStatistics: [{ types: ["t3"], duration: 1800 }, { types: ["g1"], duration: 7200 }] },
+    { title: "Aug 6", info: { total: 0 } },
+  ],
 };
 
 const PAGE = {
@@ -41,10 +44,12 @@ test("timeReport reports both humanized and raw totals, sorted by duration", asy
 test("timeReport keeps empty buckets so a series has no holes", async () => {
   const { ctx } = mockCtx({ "POST /api/statistics": STATS });
   const r = await timeReport({ period: "today", timezone: "UTC" }, ctx);
-  assert.deepEqual(r.periods, [
+  assert.deepEqual(r.periods.map(({ by_type, ...p }) => p), [
     { period: "Aug 5", duration: "2h 30m", seconds: 9000 },
     { period: "Aug 6", duration: "0s", seconds: 0 },
   ]);
+  assert.deepEqual(r.periods[0].by_type.map((t) => [t.type, t.seconds]), [["Work", 7200], ["Sleep", 1800]], "each bucket's types, longest first");
+  assert.deepEqual(r.periods[1].by_type, []);
 });
 
 test("timeReport survives an empty account without dropping keys", async () => {
@@ -137,4 +142,40 @@ test("a report filter may name an archived type: its history is kept", async () 
   const { ctx, calls } = mockCtx({ "POST /api/statistics": STATS });
   await timeReport({ from: "2026-08-01", to: "2026-08-06", type_names: ["Retired"], timezone: "UTC" }, ctx);
   assert.deepEqual(calls.find((c) => c.path === "/api/statistics").body.types, ["t4"]);
+});
+
+const PAINTED = [
+  { id: "g1", name: "Hobbies", group: true, parentId: null, color: 0x6da5be, imageId: "rph_001", deleted: false, archived: false },
+  { id: "t1", name: "Guitar", group: false, parentId: "g1", color: 0xf38725, imageId: "mi_009", deleted: false, archived: false },
+  { id: "t2", name: "Work", group: false, parentId: null, color: 0x886a7c, imageId: "ico_4", deleted: false, archived: false },
+  { id: "t3", name: "Walks", group: false, parentId: null, color: 0x417505, imageId: "", deleted: false, archived: false },
+];
+
+test("timeReport gives each type's color and icon name; a combination of types has neither", async () => {
+  const { ctx } = mockCtx({
+    "/api/types": PAINTED,
+    "POST /api/statistics": {
+      periods: [],
+      total: { info: { total: 10800 }, groupedStatistics: [
+        { types: ["t2"], duration: 3600 },
+        { types: ["g1"], duration: 3600, children: [{ types: ["t1"], duration: 3600 }] },
+        { types: ["t3"], duration: 1800 },
+        { types: ["t2", "t3"], duration: 1800 },
+      ] },
+    },
+  });
+  const r = await timeReport({ from: "2026-10-01", to: "2026-10-30", timezone: "UTC" }, ctx);
+  assert.deepEqual(r.by_type.map((t) => [t.type, t.color, t.icon]), [
+    ["Work", "#886a7c", "ico_4"], ["Hobbies", "#6da5be", "rph_001"], ["Walks", "#417505", undefined], ["Work + Walks", undefined, undefined],
+  ]);
+  assert.deepEqual([r.by_type[1].children[0].color, r.by_type[1].children[0].icon], ["#f38725", "mi_009"]);
+});
+
+test("listTypes gives each type's color and icon name", async () => {
+  const { ctx } = mockCtx({ "/api/types": PAINTED });
+  const { types } = await listTypes(false, ctx);
+  assert.deepEqual(types.map((t) => [t.name, t.color, t.icon]), [
+    ["Hobbies", "#6da5be", "rph_001"], ["Work", "#886a7c", "ico_4"], ["Walks", "#417505", undefined],
+  ]);
+  assert.deepEqual([types[0].children[0].color, types[0].children[0].icon], ["#f38725", "mi_009"]);
 });
