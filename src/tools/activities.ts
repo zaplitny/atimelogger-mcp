@@ -52,23 +52,34 @@ export interface CurrentStatus {
   active: ActiveActivity[];
 }
 
+/**
+ * The backend's `duration` counts finished segments only; a running timer's current segment runs
+ * from `start` (reset on every resume, absent while paused) and has to be added here.
+ */
+function elapsedSeconds(a: ActivityDto, nowMs: number): number {
+  if (a.status !== "RUNNING" || !a.start) return a.duration;
+  return a.duration + Math.max(0, Math.floor((nowMs - Date.parse(a.start)) / 1000));
+}
+
 export async function currentStatus(tz: string, ctx: Ctx = defaultContext()): Promise<CurrentStatus> {
   const [data, names] = await Promise.all([
     ctx.api.get<ActivitiesDto>("/api/activities"),
     ctx.types.typeNameById(),
   ]);
   const running = (data.activities ?? []).filter((a) => a.status === "RUNNING" || a.status === "PAUSED");
+  const nowMs = Date.now();
   return {
     status: running.length === 0 ? "idle" : "active",
-    now: unixToLocal(Date.now() / 1000, tz),
+    now: unixToLocal(nowMs / 1000, tz),
     timezone: tz,
     active: running.map((a) => {
+      const seconds = elapsedSeconds(a, nowMs);
       const entry: ActiveActivity = {
         activity: names.get(a.typeId) ?? a.typeId,
         id: a.id,
         status: a.status as "RUNNING" | "PAUSED",
-        elapsed: formatDuration(a.duration),
-        seconds: a.duration,
+        elapsed: formatDuration(seconds),
+        seconds,
       };
       if (a.start) entry.started = unixToLocal(Date.parse(a.start) / 1000, tz);
       if (a.comment) entry.comment = a.comment;
@@ -387,12 +398,13 @@ export async function updateActivity(args: UpdateArgs, ctx: Ctx = defaultContext
     ctx.api.get<ActivityDto>(`/api/activities/${args.activity_id}`),
     ctx.types.typeNameById(),
   ]);
+  const seconds = elapsedSeconds(updated, Date.now());
   const result: UpdatedActivity = {
     activity: names.get(updated.typeId) ?? updated.typeId,
     activity_id: updated.id,
     status: updated.status,
-    tracked: formatDuration(updated.duration),
-    seconds: updated.duration,
+    tracked: formatDuration(seconds),
+    seconds,
   };
   if (updated.comment) result.comment = updated.comment;
   if (updated.tags && updated.tags.length > 0) result.tags = updated.tags;

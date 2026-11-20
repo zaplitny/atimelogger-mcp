@@ -30,9 +30,28 @@ test("currentStatus resolves type names and keeps running plus paused", async ()
   assert.equal(s.status, "active");
   assert.deepEqual(s.active.map((a) => `${a.activity}/${a.status}`), ["Development/RUNNING", "Sleep/PAUSED"]);
   assert.equal(s.active[0].started, "2026-08-06 07:00");
-  assert.equal(s.active[0].seconds, 3600);
-  assert.equal(s.active[0].elapsed, "1h");
   assert.equal(s.active[1].started, undefined, "a paused timer has no start");
+  assert.equal(s.active[1].seconds, 1800);
+  assert.equal(s.active[1].elapsed, "30m");
+});
+
+test("a running timer's elapsed time includes the segment still running", async () => {
+  // `duration` holds the finished segments (10 min); the current one started 5 min ago
+  const start = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { ctx } = mockCtx({ "/api/activities": { activities: [{ id: "a1", typeId: "t1", status: "RUNNING", start, duration: 600 }] } });
+  const s = await currentStatus("UTC", ctx);
+  assert.ok(Math.abs(s.active[0].seconds - 900) <= 2, `expected about 900s, got ${s.active[0].seconds}`);
+  assert.equal(s.active[0].elapsed, "15m");
+});
+
+test("updateActivity's tracked time counts a running timer's current segment too", async () => {
+  const start = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { ctx } = mockCtx({
+    "PATCH /api/activities/a1/comment": new Response(null, { status: 204 }),
+    "GET /api/activities/a1": { id: "a1", typeId: "t1", status: "RUNNING", start, duration: 600 },
+  });
+  const r = await updateActivity({ activity_id: "a1", comment: "x" }, ctx);
+  assert.equal(r.tracked, "30m");
 });
 
 test("startActivity resolves a fuzzy name and posts time=0 for now", async () => {
