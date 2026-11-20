@@ -20,7 +20,12 @@ export interface ApiOptions {
   baseUrl?: string;
   /** Override the HTTP layer — tests, proxies, instrumentation. */
   fetch?: FetchLike;
+  /** Give up on a request after this long (default 30 s), so a hung backend cannot hold a tool call open. */
+  timeoutMs?: number;
 }
+
+const PAT_UNAUTHORIZED =
+  "Authentication failed: the token is invalid, expired, or revoked. Generate a new Personal Access Token in the ATimeLogger web app (Settings -> API Tokens) and update ATL_TOKEN (or run `npm run setup` in atimelogger-mcp/).";
 
 export interface Api {
   get<T>(path: string): Promise<T>;
@@ -46,6 +51,7 @@ export function createApi(options: ApiOptions): Api {
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
       });
     } catch (e) {
       throw new NetworkError(
@@ -53,11 +59,15 @@ export function createApi(options: ApiOptions): Api {
         { cause: e }
       );
     }
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
+      throw new ApiError(401, "", PAT_UNAUTHORIZED);
+    }
+    // a valid token without permission: regenerating it would not help
+    if (res.status === 403) {
       throw new ApiError(
-        res.status,
+        403,
         "",
-        "Authentication failed: the token is invalid, expired, or revoked. Generate a new Personal Access Token in the ATimeLogger web app (Settings -> API Tokens) and update ATL_TOKEN (or run `npm run setup` in atimelogger-mcp/)."
+        `ATimeLogger refused ${method} ${path}: this account or connection is not allowed to do that.`
       );
     }
     const text = await res.text();
@@ -91,7 +101,7 @@ function defaultApi(): Api {
       const refuse = async (): Promise<never> => {
         throw new UsageError(
           "ATL_TOKEN is not set — the server is in docs-only mode, only app_help (app documentation) works. " +
-            "To use time tracking, the user needs API access (part of the Premium Sync plan).\n" +
+            "To use time tracking, the user needs a personal access token for their ATimeLogger account.\n" +
             setupInstructions(config.baseUrl)
         );
       };
